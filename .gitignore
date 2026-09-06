@@ -18,3 +18,7 @@ keystore.properties
 /scripts/rootfs/cache/
 # Native binaries are fetched by scripts/fetch-native.sh, not committed
 /app/src/main/jniLibs/
+
+# Python bytecode from syntax checks
+__pycache__/
+*.pyc
