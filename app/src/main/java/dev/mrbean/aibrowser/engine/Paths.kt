@@ -34,7 +34,9 @@ data class Paths(
                 prootTmp = File(root, "proot_tmp"),
                 rootfs = File(root, "rootfs"),
                 data = File(root, "data"),
-                logs = File(root, "logs"),
+                // Under data/ so the health service inside the rootfs can read
+                // them at /opt/aibrowser/data/logs (tunnel connection count).
+                logs = File(root, "data/logs"),
                 nativeLibraryDir = context.applicationInfo.nativeLibraryDir,
             )
         }
