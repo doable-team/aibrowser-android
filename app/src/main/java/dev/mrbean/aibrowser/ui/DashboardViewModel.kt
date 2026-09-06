@@ -11,10 +11,13 @@ import dev.mrbean.aibrowser.AppGraph
 import dev.mrbean.aibrowser.engine.InstallState
 import dev.mrbean.aibrowser.engine.ServiceStatus
 import dev.mrbean.aibrowser.service.ServiceController
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Dashboard state and actions. All start/stop actions are routed through the
@@ -40,8 +43,18 @@ class DashboardViewModel(graph: AppGraph, application: Application) : AndroidVie
     fun restartAll() = ServiceController.start(getApplication(), ServiceController.ACTION_RESTART_ALL)
     fun start(name: String) = ServiceController.start(getApplication(), ServiceController.ACTION_START, name)
     fun stop(name: String) = ServiceController.start(getApplication(), ServiceController.ACTION_STOP, name)
+    fun restart(name: String) = ServiceController.start(getApplication(), ServiceController.ACTION_RESTART, name)
 
     fun logLines(name: String): List<String> = supervisor.logLines(name)
+
+    fun clearLog(name: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { supervisor.clearLog(name) }
+        }
+    }
+
+    /** True when the rootfs marker exists, so service processes can actually run. */
+    fun rootfsReady(): Boolean = supervisor.rootfsReady()
 
     companion object {
         val Factory = viewModelFactory {

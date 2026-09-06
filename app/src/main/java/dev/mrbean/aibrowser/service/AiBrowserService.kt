@@ -98,7 +98,8 @@ class AiBrowserService : Service() {
     private fun buildNotification(running: Int): Notification {
         val contentIntent = PendingIntent.getActivity(
             this, 0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_TAB, MainActivity.TAB_DASHBOARD),
             PendingIntent.FLAG_IMMUTABLE,
         )
         val stopAllIntent = PendingIntent.getForegroundService(
@@ -106,11 +107,17 @@ class AiBrowserService : Service() {
             Intent(this, AiBrowserService::class.java).setAction(ServiceController.ACTION_STOP_ALL),
             PendingIntent.FLAG_IMMUTABLE,
         )
+        val restartAllIntent = PendingIntent.getForegroundService(
+            this, 2,
+            Intent(this, AiBrowserService::class.java).setAction(ServiceController.ACTION_RESTART_ALL),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AiBrowser")
             .setContentText("$running of ${Services.all.size} services running")
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(contentIntent)
+            .addAction(0, "Restart all", restartAllIntent)
             .addAction(0, "Stop all", stopAllIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

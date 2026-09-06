@@ -121,8 +121,17 @@ class RootfsInstaller(
             val home = File(paths.rootfs, "root")
             File(home, "profile").mkdirs()
             File(home, "logs").mkdirs()
+            ChromiumFlags.ensure(paths.data)
 
-            config.save(config.load().copy(rootfsVersion = manifest.version, mirrorUrl = manifestUrl))
+            // A successful install means the userland is ready, so boot start
+            // defaults to on from then on.
+            config.save(
+                config.load().copy(
+                    rootfsVersion = manifest.version,
+                    mirrorUrl = manifestUrl,
+                    startOnBoot = true,
+                ),
+            )
             deleteTarball(tarball)
             _state.value = InstallState.Installed(manifest.version)
         } catch (e: CancellationException) {

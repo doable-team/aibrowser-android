@@ -1,5 +1,15 @@
 package dev.mrbean.aibrowser.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,19 +19,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mrbean.aibrowser.engine.InstallState
 import java.util.Locale
@@ -38,6 +61,8 @@ fun SetupScreen(viewModel: SetupViewModel = viewModel(factory = SetupViewModel.F
         NativeBinariesCard(state, viewModel)
         Spacer(Modifier.height(12.dp))
         RootfsCard(state, viewModel)
+        Spacer(Modifier.height(12.dp))
+        AndroidChecksCard()
     }
 }
 
@@ -124,6 +149,191 @@ private fun RootfsCard(state: SetupUiState, viewModel: SetupViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun AndroidChecksCard() {
+    val context = LocalContext.current
+    var notificationGranted by remember { mutableStateOf(isNotificationGranted(context)) }
+    var batteryIgnored by remember { mutableStateOf(isBatteryIgnored(context)) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { notificationGranted = isNotificationGranted(context) }
+
+    val checkAgain: () -> Unit = {
+        notificationGranted = isNotificationGranted(context)
+        batteryIgnored = isBatteryIgnored(context)
+    }
+
+    val requestBattery: () -> Unit = {
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:${context.packageName}"),
+                ),
+            )
+        }.onFailure {
+            // Some OEMs do not provide the request activity; the settings list
+            // still lets the operator reach the exemption dialog.
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }
+        batteryIgnored = isBatteryIgnored(context)
+    }
+
+    val openAppDetails: () -> Unit = {
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${context.packageName}"),
+                ),
+            )
+        }
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Android checks", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "A few one-time Android settings keep the services alive in the background.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            CheckRow(
+                label = "Notifications",
+                ok = notificationGranted,
+                detail = if (notificationGranted) "Granted" else "Notifications are off on Android 13+",
+                buttonText = if (notificationGranted) "Granted" else "Request",
+                onButton = {
+                    if (Build.VERSION.SDK_INT >= 33 && !notificationGranted) {
+                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        checkAgain()
+                    }
+                },
+            )
+            CheckRow(
+                label = "Battery optimisation",
+                ok = batteryIgnored,
+                detail = if (batteryIgnored) {
+                    "Exempt from battery optimisation"
+                } else {
+                    "Battery optimisation can kill the services in the background"
+                },
+                buttonText = if (batteryIgnored) "Exempt" else "Request exemption",
+                onButton = requestBattery,
+            )
+            ChildProcessLimitRow(onCheckAgain = checkAgain)
+            CheckRow(
+                label = "Unrestricted background",
+                ok = null,
+                detail = "Open the app's details page and set Battery to Unrestricted.",
+                buttonText = "App details",
+                onButton = openAppDetails,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CheckRow(
+    label: String,
+    ok: Boolean?,
+    detail: String,
+    buttonText: String,
+    onButton: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusIcon(ok)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        OutlinedButton(onClick = onButton) { Text(buttonText) }
+    }
+}
+
+@Composable
+private fun ChildProcessLimitRow(onCheckAgain: () -> Unit) {
+    val context = LocalContext.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusIcon(null)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Child process limit", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "In Developer options, \"Disable child process restrictions\" must be on " +
+                    "(Android 12 to 14).\nOn Android 15+ the limit is per app and usually fine.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                "This cannot be checked here.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(Modifier.padding(top = 4.dp)) {
+                TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                    }
+                }) { Text("Developer options") }
+                TextButton(onClick = onCheckAgain) { Text("Check again") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusIcon(ok: Boolean?) {
+    when (ok) {
+        true -> Icon(
+            Icons.Filled.CheckCircle,
+            contentDescription = "OK",
+            tint = Color(0xFF4CAF50),
+        )
+        false -> Icon(
+            Icons.Filled.Close,
+            contentDescription = "Not OK",
+            tint = MaterialTheme.colorScheme.error,
+        )
+        null -> Icon(
+            Icons.Filled.Info,
+            contentDescription = "Info",
+            tint = MaterialTheme.colorScheme.tertiary,
+        )
+    }
+}
+
+private fun isNotificationGranted(context: Context): Boolean =
+    Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+
+private fun isBatteryIgnored(context: Context): Boolean {
+    val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return false
+    return power.isIgnoringBatteryOptimizations(context.packageName)
 }
 
 private fun isRunning(state: InstallState): Boolean = when (state) {

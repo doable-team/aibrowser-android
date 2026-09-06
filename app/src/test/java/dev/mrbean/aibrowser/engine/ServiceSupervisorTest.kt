@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -252,5 +253,60 @@ class ServiceSupervisorTest {
         assertEquals(300, ring.size)
         assertEquals("line-399", ring.last())
         assertEquals(400, File(paths.logs, "gate.log").readLines().size)
+    }
+
+    @Test
+    fun `startAll refuses when the rootfs is missing`() = runTest {
+        val supervisor = ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        assertFalse(supervisor.startAll())
+        assertTrue(runner.calls.isEmpty())
+        assertTrue(supervisor.statuses.value.isEmpty())
+    }
+
+    @Test
+    fun `startAll returns true when the rootfs is present`() = runTest {
+        val env = File(paths.rootfs, "usr/bin/env")
+        env.parentFile?.mkdirs()
+        env.writeText("env")
+        val supervisor = ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        assertTrue(supervisor.startAll())
+    }
+
+    @Test
+    fun `oversized log files rotate at supervisor start`() = runTest {
+        val gateLog = File(paths.logs, "gate.log")
+        gateLog.writeText("x".repeat((2L * 1024 * 1024).toInt() + 1))
+
+        ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        assertFalse(gateLog.exists())
+        assertTrue(File(paths.logs, "gate.log.1").exists())
+    }
+
+    @Test
+    fun `supervisor start creates the chromium flags defaults when missing`() = runTest {
+        ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        val flags = File(paths.data, "chromium.flags")
+        assertTrue(flags.isFile)
+        assertEquals("--disable-session-crashed-bubble\n--hide-crash-restore-bubble\n", flags.readText())
+    }
+
+    @Test
+    fun `clearLog empties the ring and truncates the log file`() = runTest {
+        runner.exitDelayMs = 0
+        runner.linesToEmit = 10
+        val supervisor = ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+        supervisor.start("gate")
+        runCurrent()
+        assertEquals(10, supervisor.logLines("gate").size)
+        assertEquals(10, File(paths.logs, "gate.log").readLines().size)
+
+        supervisor.clearLog("gate")
+
+        assertTrue(supervisor.logLines("gate").isEmpty())
+        assertEquals("", File(paths.logs, "gate.log").readText())
     }
 }

@@ -94,6 +94,16 @@ class ServiceSupervisor(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    init {
+        // Log files left over from a previous run may exceed the rotation cap
+        // (e.g. the app was stopped while writing); rotate them at startup.
+        rotateOversizedLogs()
+        // An unclean stop otherwise shows Chromium's "Restore pages?" bubble on
+        // every start; make sure the suppress flags are present before the
+        // services can run.
+        ChromiumFlags.ensure(paths.data)
+    }
+
     /** Starts one service; `tunnel` without a token becomes [ServiceState.Disabled]. */
     suspend fun start(name: String) {
         mutex.withLock {
@@ -141,13 +151,15 @@ class ServiceSupervisor(
     }
 
     /** Starts every service in table order with a 1.5 s gap between starts. */
-    fun startAll() {
+    fun startAll(): Boolean {
+        if (!rootfsReady()) return false
         scope.launch {
             for (def in Services.all) {
                 start(def.name)
                 delay(START_GAP_MS)
             }
         }
+        return true
     }
 
     /** Stops every service in reverse table order. */
@@ -159,7 +171,8 @@ class ServiceSupervisor(
         }
     }
 
-    fun restartAll() {
+    fun restartAll(): Boolean {
+        if (!rootfsReady()) return false
         scope.launch {
             for (def in Services.all.asReversed()) {
                 stop(def.name)
@@ -169,10 +182,22 @@ class ServiceSupervisor(
                 delay(START_GAP_MS)
             }
         }
+        return true
     }
 
     /** Last up-to-[RING_CAPACITY] lines of a service's stdout/stderr. */
     fun logLines(name: String): List<String> = snapshotRing(name)
+
+    /** Empties a service's in-memory ring and truncates its log file. */
+    fun clearLog(name: String) {
+        logLock.withLock {
+            rings[name] = LogRing(RING_CAPACITY)
+            File(paths.logs, "$name.log").writeText("")
+        }
+    }
+
+    /** True when the rootfs marker exists, so service processes can actually run. */
+    fun rootfsReady(): Boolean = File(paths.rootfs, "usr/bin/env").isFile
 
     private fun launchLoop(name: String): Job = scope.launch {
         var attempt = 0
@@ -284,6 +309,19 @@ class ServiceSupervisor(
 
     private fun snapshotRing(name: String): List<String> = logLock.withLock {
         rings[name]?.snapshot() ?: emptyList()
+    }
+
+    /** Rotates any `data/logs/<name>.log` that already exceeds the size cap. */
+    private fun rotateOversizedLogs() {
+        val logsDir = paths.logs
+        if (!logsDir.isDirectory) return
+        logsDir.listFiles { f -> f.isFile && f.name.endsWith(".log") }?.forEach { file ->
+            if (file.length() > MAX_LOG_BYTES) {
+                val rotated = File(logsDir, file.name + ".1")
+                rotated.delete()
+                file.renameTo(rotated)
+            }
+        }
     }
 
     private fun hasTunnelToken(): Boolean {

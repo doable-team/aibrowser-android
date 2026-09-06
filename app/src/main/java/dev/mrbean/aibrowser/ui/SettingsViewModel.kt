@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import dev.mrbean.aibrowser.AiBrowserApp
 import dev.mrbean.aibrowser.AppGraph
 import dev.mrbean.aibrowser.engine.ApiToken
+import dev.mrbean.aibrowser.engine.ChromiumFlags
 import dev.mrbean.aibrowser.engine.SecretFile
 import dev.mrbean.aibrowser.engine.ServiceState
 import dev.mrbean.aibrowser.engine.TokenStore
@@ -32,6 +33,7 @@ data class SettingsUiState(
     val mcpHost: String = "",
     val chromiumFlags: String = "",
     val extensions: List<String> = emptyList(),
+    val startOnBoot: Boolean = false,
     val rootfsVersion: String = "",
     val manifestUrl: String = "",
 )
@@ -64,12 +66,14 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) {
                 val cfg = config.load()
+                ChromiumFlags.ensure(paths.data)
                 SettingsUiState(
                     tunnelToken = tunnelFile.readOrEmpty(),
                     tokens = tokenStore.list(),
                     mcpHost = cfg.mcpHost,
-                    chromiumFlags = if (chromiumFlagsFile.isFile) chromiumFlagsFile.readText().trim() else "",
+                    chromiumFlags = chromiumFlagsFile.readText().trim(),
                     extensions = listExtensions(),
+                    startOnBoot = cfg.startOnBoot,
                     rootfsVersion = cfg.rootfsVersion,
                     manifestUrl = cfg.mirrorUrl,
                 )
@@ -82,6 +86,17 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
 
     fun onTunnelTokenChange(value: String) {
         _state.update { it.copy(tunnelToken = value) }
+    }
+
+    // Startup
+
+    fun setStartOnBoot(value: Boolean) {
+        _state.update { it.copy(startOnBoot = value) }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                config.save(config.load().copy(startOnBoot = value))
+            }
+        }
     }
 
     fun toggleShowTunnelToken() {

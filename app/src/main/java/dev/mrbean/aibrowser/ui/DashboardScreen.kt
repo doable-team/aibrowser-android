@@ -4,13 +4,16 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +25,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,7 +37,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -44,6 +51,7 @@ import dev.mrbean.aibrowser.engine.ServiceState
 import dev.mrbean.aibrowser.engine.ServiceStatus
 import dev.mrbean.aibrowser.engine.Services
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun DashboardScreen(
@@ -78,6 +86,8 @@ fun DashboardScreen(
     }
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -96,44 +106,72 @@ fun DashboardScreen(
             action()
         }
     }
+    // Refuses to start the services when the rootfs is missing.
+    val startAll: () -> Unit = {
+        if (!viewModel.rootfsReady()) {
+            scope.launch { snackbarHostState.showSnackbar("Install the rootfs first") }
+        } else {
+            withPermission { viewModel.startAll() }
+        }
+    }
+    val restartAll: () -> Unit = {
+        if (!viewModel.rootfsReady()) {
+            scope.launch { snackbarHostState.showSnackbar("Install the rootfs first") }
+        } else {
+            withPermission { viewModel.restartAll() }
+        }
+    }
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     val onCopyLog: (String) -> Unit = { text ->
         clipboard.setPrimaryClip(ClipData.newPlainText("service log", text))
     }
+    val onShareLog: (String) -> Unit = { text ->
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(Intent.createChooser(sendIntent, "Share log"))
+    }
 
     val running = statuses.values.count { it.state is ServiceState.Running }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-    ) {
-        Text(
-            "$running of ${Services.all.size} running",
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Row(Modifier.padding(top = 12.dp)) {
-            Button(onClick = { withPermission { viewModel.startAll() } }) { Text("Start all") }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = viewModel::stopAll) { Text("Stop all") }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { withPermission { viewModel.restartAll() } }) { Text("Restart all") }
-        }
-        Spacer(Modifier.height(16.dp))
-        Services.all.forEach { def ->
-            ServiceCard(
-                def = def,
-                status = statuses[def.name],
-                nowMs = nowMs,
-                onToggle = { on ->
-                    if (on) withPermission { viewModel.start(def.name) }
-                    else viewModel.stop(def.name)
-                },
-                loadLogs = { viewModel.logLines(def.name) },
-                onCopyLog = onCopyLog,
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+        ) {
+            Text(
+                "$running of ${Services.all.size} running",
+                style = MaterialTheme.typography.headlineSmall,
             )
-            Spacer(Modifier.height(8.dp))
+            Row(Modifier.padding(top = 12.dp)) {
+                Button(onClick = startAll) { Text("Start all") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = viewModel::stopAll) { Text("Stop all") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = restartAll) { Text("Restart all") }
+            }
+            Spacer(Modifier.height(16.dp))
+            Services.all.forEach { def ->
+                ServiceCard(
+                    def = def,
+                    status = statuses[def.name],
+                    nowMs = nowMs,
+                    onToggle = { on ->
+                        if (on) withPermission { viewModel.start(def.name) }
+                        else viewModel.stop(def.name)
+                    },
+                    onRestart = { withPermission { viewModel.restart(def.name) } },
+                    loadLogs = { viewModel.logLines(def.name) },
+                    onCopyLog = onCopyLog,
+                    onShareLog = onShareLog,
+                    onClearLog = { viewModel.clearLog(def.name) },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
         }
+        SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -143,8 +181,11 @@ private fun ServiceCard(
     status: ServiceStatus?,
     nowMs: Long,
     onToggle: (Boolean) -> Unit,
+    onRestart: () -> Unit,
     loadLogs: () -> List<String>,
     onCopyLog: (String) -> Unit,
+    onShareLog: (String) -> Unit,
+    onClearLog: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -168,10 +209,32 @@ private fun ServiceCard(
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                Switch(
-                    checked = isStarted(status?.state),
-                    onCheckedChange = onToggle,
-                )
+                Row {
+                    OutlinedButton(onClick = onRestart, enabled = isStarted(status?.state)) {
+                        Text("Restart")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = isStarted(status?.state),
+                        onCheckedChange = onToggle,
+                    )
+                }
+            }
+
+            // A service stuck in a long backoff shows its last lines so the
+            // reason for the failure is visible without opening the log viewer.
+            val state = status?.state
+            if (state is ServiceState.Backoff && state.attempt >= 6) {
+                val tail = status.lastLines.takeLast(3)
+                if (tail.isNotEmpty()) {
+                    Text(
+                        tail.joinToString("\n"),
+                        color = MaterialTheme.colorScheme.error,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
 
             var showLogs by remember { mutableStateOf(false) }
@@ -180,16 +243,19 @@ private fun ServiceCard(
             }
             if (showLogs) {
                 HorizontalDivider()
-                val lines = loadLogs().takeLast(40)
+                val lines = loadLogs()
+                val shown = lines.takeLast(40)
                 Text(
-                    if (lines.isEmpty()) "no output yet"
-                    else lines.joinToString("\n"),
+                    if (shown.isEmpty()) "no output yet"
+                    else shown.joinToString("\n"),
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Row(Modifier.padding(top = 8.dp)) {
-                    TextButton(onClick = { onCopyLog(lines.joinToString("\n")) }) { Text("Copy") }
+                    TextButton(onClick = { onCopyLog(shown.joinToString("\n")) }) { Text("Copy") }
+                    TextButton(onClick = { onShareLog(lines.joinToString("\n")) }) { Text("Share") }
+                    TextButton(onClick = onClearLog) { Text("Clear") }
                 }
             }
         }

@@ -1,5 +1,6 @@
 package dev.mrbean.aibrowser.ui
 
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -19,11 +20,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.mrbean.aibrowser.MainActivity
 
 private enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     Setup("setup", "Setup", Icons.Filled.Home),
@@ -37,6 +40,22 @@ fun AiBrowserRoot() {
     val navController = rememberNavController()
     // Preview can hide the bottom navigation through this state.
     var previewFullscreen by remember { mutableStateOf(false) }
+
+    // The notification's tap intent selects the Dashboard tab.
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        val activity = context as? ComponentActivity
+        val intent = activity?.intent
+        if (intent?.getStringExtra(MainActivity.EXTRA_TAB) == MainActivity.TAB_DASHBOARD) {
+            navController.navigate(Destination.Dashboard.route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
+                }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route

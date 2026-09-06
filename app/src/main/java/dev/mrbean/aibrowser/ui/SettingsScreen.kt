@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,6 +78,8 @@ fun SettingsScreen(
                 .padding(16.dp),
         ) {
             TunnelCard(state, viewModel)
+            Spacer(Modifier.height(12.dp))
+            StartupCard(state, viewModel)
             Spacer(Modifier.height(12.dp))
             ApiTokensCard(state, viewModel, onRemove = { tokenToRemove = it })
             Spacer(Modifier.height(12.dp))
@@ -195,6 +198,36 @@ private fun TunnelCard(state: SettingsUiState, viewModel: SettingsViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun StartupCard(state: SettingsUiState, viewModel: SettingsViewModel) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Startup", style = MaterialTheme.typography.titleMedium)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Start on boot", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Restarts all services after a reboot. " +
+                            "On by default once the rootfs is installed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Switch(
+                    checked = state.startOnBoot,
+                    onCheckedChange = viewModel::setStartOnBoot,
+                )
+            }
         }
     }
 }

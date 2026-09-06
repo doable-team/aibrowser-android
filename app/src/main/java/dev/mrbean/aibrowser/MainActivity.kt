@@ -17,4 +17,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        /** Intent extra selecting the tab the notification tap opens. */
+        const val EXTRA_TAB = "dev.mrbean.aibrowser.tab"
+        const val TAB_DASHBOARD = "dashboard"
+    }
 }
