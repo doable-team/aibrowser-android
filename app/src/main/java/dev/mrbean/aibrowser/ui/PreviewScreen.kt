@@ -2,6 +2,7 @@ package dev.mrbean.aibrowser.ui
 
 import android.net.Uri
 import android.webkit.WebResourceRequest
+import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
@@ -99,6 +100,13 @@ fun PreviewScreen(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     WebView(ctx).apply {
+                        // Without explicit params a WebView measures as wrap-content
+                        // and reports a zero CSS viewport height, so noVNC's
+                        // container collapses and the canvas draws at 0 by 0.
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
                         webViewClient = object : WebViewClient() {
