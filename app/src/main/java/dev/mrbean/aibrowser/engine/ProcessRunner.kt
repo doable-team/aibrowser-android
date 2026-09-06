@@ -30,6 +30,7 @@ open class ProcessRunner {
         spec: ProcessSpec,
         cwd: File? = null,
         timeoutMs: Long? = null,
+        onStarted: (pid: Int?) -> Unit = {},
         onLine: (line: String, isStderr: Boolean) -> Unit = { _, _ -> },
     ): RunResult = withContext(Dispatchers.IO) {
         val builder = ProcessBuilder(spec.argv)
@@ -42,6 +43,7 @@ open class ProcessRunner {
             onLine(e.message ?: e.javaClass.simpleName, true)
             return@withContext RunResult(exitCode = -1, timedOut = false)
         }
+        onStarted(pidOf(process))
 
         coroutineScope {
             val stdout = launch {
@@ -84,7 +86,35 @@ open class ProcessRunner {
         env: Map<String, String>,
         timeoutMs: Long? = null,
         onLine: (line: String, isStderr: Boolean) -> Unit = { _, _ -> },
-    ): RunResult = run(ProcessSpec(argv, env), cwd, timeoutMs, onLine)
+    ): RunResult = run(ProcessSpec(argv, env), cwd, timeoutMs, onLine = onLine)
+
+    /**
+     * Returns the native pid of [process] when available: via [Process.pid]
+     * (API 33+ / Java 9) when present, otherwise by reading the private "pid"
+     * field of the platform's process implementation through reflection.
+     * Returns null when neither path works.
+     */
+    open fun pidOf(process: Process): Int? {
+        try {
+            // Process.pid() exists on Java 9+ and API 33+, but not on the
+            // compile classpath, so it is reached by reflection.
+            val method = Process::class.java.getMethod("pid")
+            return (method.invoke(process) as Number).toInt()
+        } catch (_: Throwable) {
+            // Fall through to the private field.
+        }
+        return try {
+            val field = process.javaClass.getDeclaredField("pid")
+            field.isAccessible = true
+            when (val value = field.get(process)) {
+                is Int -> value
+                is Long -> value.toInt()
+                else -> null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     private fun destroy(process: Process) {
         process.destroy()

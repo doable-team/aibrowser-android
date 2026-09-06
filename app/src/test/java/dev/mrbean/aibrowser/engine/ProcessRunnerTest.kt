@@ -60,4 +60,16 @@ class ProcessRunnerTest {
 
         assertTrue(result.timedOut)
     }
+
+    @Test
+    fun `pidOf returns a positive pid for a running process`() {
+        val process = ProcessBuilder("/bin/sh", "-c", "sleep 2").start()
+        try {
+            val pid = ProcessRunner().pidOf(process)
+            assertTrue("expected a positive pid, got $pid", pid != null && pid > 0)
+        } finally {
+            process.destroy()
+            process.waitFor()
+        }
+    }
 }

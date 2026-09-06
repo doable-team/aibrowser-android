@@ -2,7 +2,9 @@ package dev.mrbean.aibrowser.engine
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -26,24 +28,41 @@ class ServiceSupervisorTest {
 
     /** A [ProcessRunner] that simulates a process: it runs for [exitDelayMs],
      *  emits [linesToEmit] lines, then exits with [exitCode]; cancelling it
-     *  marks [destroyed] (the runner's destroy path). */
+     *  marks [destroyed] (the runner's destroy path). When [processTree] is
+     *  set it reports the fake proot pid through [onStarted] and completes as
+     *  soon as the fake tree receives SIGTERM on the guest root. */
     class FakeRunner : ProcessRunner() {
         val calls = mutableListOf<ProcessSpec>()
         var exitCode = 0
         var exitDelayMs = 0L
         var linesToEmit = 0
         var destroyed = false
+        var processTree: FakeProcessTree? = null
 
         override suspend fun run(
             spec: ProcessSpec,
             cwd: File?,
             timeoutMs: Long?,
+            onStarted: (pid: Int?) -> Unit,
             onLine: (line: String, isStderr: Boolean) -> Unit,
         ): RunResult {
             calls.add(spec)
             destroyed = false
+            val tree = processTree
+            onStarted(tree?.prootPid)
             try {
-                delay(exitDelayMs)
+                if (tree != null) {
+                    val startNanos = System.nanoTime()
+                    while (currentCoroutineContext().isActive &&
+                        !tree.sigtermOnGuestRoot() &&
+                        exitDelayMs > 0 &&
+                        System.nanoTime() - startNanos < exitDelayMs * 1_000_000L
+                    ) {
+                        delay(10)
+                    }
+                } else {
+                    delay(exitDelayMs)
+                }
                 repeat(linesToEmit) { onLine("line-$it", false) }
                 return RunResult(exitCode, false)
             } catch (e: CancellationException) {
@@ -51,6 +70,26 @@ class ServiceSupervisorTest {
                 throw e
             }
         }
+    }
+
+    /** A [ProcessTree] with a fixed proot -> guest root -> grand-child topology. */
+    class FakeProcessTree : ProcessTree {
+        val prootPid = 4_200_001
+        val guestRootPid = 4_200_002
+        val grandChildPid = 4_200_003
+        val signaled = mutableListOf<Pair<Int, Int>>()
+        val children: Map<Int, List<Int>> = mapOf(
+            prootPid to listOf(guestRootPid),
+            guestRootPid to listOf(grandChildPid),
+        )
+
+        override fun childrenOf(pid: Int): List<Int> = children[pid] ?: emptyList()
+
+        override fun signal(pid: Int, signal: Int) {
+            signaled.add(pid to signal)
+        }
+
+        fun sigtermOnGuestRoot(): Boolean = signaled.any { it.first == guestRootPid && it.second == 15 }
     }
 
     @Before
@@ -136,6 +175,54 @@ class ServiceSupervisorTest {
         val json = stateJson()
         assertTrue(json.contains("\"gate\""))
         assertTrue(json.contains("\"down\""))
+    }
+
+    @Test
+    fun `stop signals SIGTERM to the guest root and ends Stopped without backoff`() = runTest {
+        runner.exitDelayMs = 10_000
+        val tree = FakeProcessTree()
+        runner.processTree = tree
+        val supervisor = ServiceSupervisor(
+            paths, runner, backgroundScope,
+            clock = { testScheduler.currentTime },
+            processTree = tree,
+        )
+
+        supervisor.start("gate")
+        runCurrent()
+        assertTrue(supervisor.statuses.value["gate"]?.state is ServiceState.Running)
+
+        supervisor.stop("gate")
+        runCurrent()
+
+        assertTrue(
+            "expected SIGTERM to the guest root, got ${tree.signaled}",
+            tree.signaled.contains(tree.guestRootPid to 15),
+        )
+        assertEquals(ServiceState.Stopped, supervisor.statuses.value["gate"]?.state)
+        assertEquals(0, supervisor.statuses.value["gate"]?.restarts)
+    }
+
+    @Test
+    fun `an unexpected exit SIGKILLs the remaining guest tree before backing off`() = runTest {
+        runner.exitCode = 1
+        runner.exitDelayMs = 0
+        val tree = FakeProcessTree()
+        runner.processTree = tree
+        val supervisor = ServiceSupervisor(
+            paths, runner, backgroundScope,
+            clock = { testScheduler.currentTime },
+            processTree = tree,
+        )
+
+        supervisor.start("gate")
+        runCurrent()
+
+        assertEquals(
+            listOf(tree.guestRootPid to 9, tree.grandChildPid to 9),
+            tree.signaled.filter { it.second == 9 },
+        )
+        assertTrue(supervisor.statuses.value["gate"]?.state is ServiceState.Backoff)
     }
 
     @Test

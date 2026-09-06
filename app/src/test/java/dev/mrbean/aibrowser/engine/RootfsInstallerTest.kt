@@ -39,6 +39,7 @@ class RootfsInstallerTest {
             spec: ProcessSpec,
             cwd: File?,
             timeoutMs: Long?,
+            onStarted: (pid: Int?) -> Unit,
             onLine: (line: String, isStderr: Boolean) -> Unit,
         ): RunResult {
             calls.add(spec)

@@ -11,6 +11,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -60,6 +61,7 @@ class ServiceSupervisor(
     private val runner: ProcessRunner,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val processTree: ProcessTree = ProcProcessTree(),
 ) {
 
     private companion object {
@@ -70,6 +72,10 @@ class ServiceSupervisor(
         const val RING_CAPACITY = 300
         const val TUNNEL_SERVICE = "tunnel"
         const val TUNNEL_TOKEN_FILE = "tunnel.token"
+        const val STOP_WAIT_MS = 5_000L
+        const val GUEST_CAPTURE_DELAY_MS = 1_500L
+        const val SIGTERM = 15
+        const val SIGKILL = 9
     }
 
     private val mutex = Mutex()
@@ -82,6 +88,9 @@ class ServiceSupervisor(
     private val stoppedOnPurpose = mutableMapOf<String, Boolean>()
     private val restarts = mutableMapOf<String, Int>()
     private val rings = mutableMapOf<String, LogRing>()
+    private val prootPids = mutableMapOf<String, Int>()
+    /** The guest root below each proot, captured shortly after start for the crash path. */
+    private val guestPids = mutableMapOf<String, Int>()
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -100,12 +109,28 @@ class ServiceSupervisor(
         }
     }
 
-    /** Stops one service: cancels its loop, destroys the process, state [ServiceState.Stopped]. */
+    /**
+     * Stops one service: asks the guest root process to exit (proot's
+     * `--kill-on-exit` then reaps every guest and proot itself), waits up to
+     * [STOP_WAIT_MS], SIGKILLs the guest tree if anything survives, then
+     * cancels the loop (which destroys the proot process as before).
+     */
     suspend fun stop(name: String) {
         mutex.withLock {
             if (_statuses.value[name]?.state is ServiceState.Disabled) return
             stoppedOnPurpose[name] = true
-            jobs.remove(name)?.cancel()
+            val job = jobs[name]
+            val prootPid = prootPids[name]
+            val guestRoot = prootPid?.let { processTree.childrenOf(it).firstOrNull() }
+            if (guestRoot != null) {
+                processTree.signal(guestRoot, SIGTERM)
+                val cleanStop = job?.let { withTimeoutOrNull(STOP_WAIT_MS) { it.join() } } != null
+                if (!cleanStop) killTree(guestRoot)
+            }
+            job?.cancel()
+            jobs.remove(name)
+            prootPids.remove(name)
+            guestPids.remove(name)
             updateStatusLocked(name, ServiceState.Stopped)
         }
     }
@@ -163,13 +188,34 @@ class ServiceSupervisor(
                 command = listOf("sh", Services.scriptPath(name)),
             )
             val result = try {
-                runner.run(spec, onLine = { line, _ -> appendLog(name, line) })
+                runner.run(
+                    spec,
+                    onStarted = { pid ->
+                        pid?.let {
+                            prootPids[name] = it
+                            scope.launch {
+                                delay(GUEST_CAPTURE_DELAY_MS)
+                                processTree.childrenOf(it).firstOrNull()?.let { g -> guestPids[name] = g }
+                            }
+                        }
+                    },
+                    onLine = { line, _ -> appendLog(name, line) },
+                )
             } catch (e: CancellationException) {
                 // The loop was cancelled (stop(), or the supervisor scope died);
                 // stop() already recorded the Stopped state.
                 break
             }
-            if (stoppedOnPurpose[name] == true) break
+            if (stoppedOnPurpose[name] == true) {
+                prootPids.remove(name)
+                break
+            }
+            // Unexpected exit: the proot tracer is gone but its guests may
+            // survive and keep the port, so reap the whole guest tree first.
+            val oldProotPid = prootPids.remove(name)
+            val oldGuest = guestPids.remove(name)
+            if (oldProotPid != null) killGuestTree(oldProotPid)
+            if (oldGuest != null) killTree(oldGuest)
             if (clock() - startedAt >= RESET_AFTER_RUNNING_MS) attempt = 0
             val delayMs = delayForAttempt(attempt + 1)
             attempt += 1
@@ -243,6 +289,27 @@ class ServiceSupervisor(
     private fun hasTunnelToken(): Boolean {
         val file = File(paths.data, TUNNEL_TOKEN_FILE)
         return file.isFile && file.readText().isNotBlank()
+    }
+
+    /** SIGKILLs the guest root below [prootPid] and every descendant of it. */
+    private fun killGuestTree(prootPid: Int) {
+        val guestRoot = processTree.childrenOf(prootPid).firstOrNull() ?: return
+        killTree(guestRoot)
+    }
+
+    /** SIGKILLs [root] and all of its descendants (walked via [ProcessTree.childrenOf]). */
+    private fun killTree(root: Int) {
+        // Enumerate the whole tree before signalling: a killed process has its
+        // children reparented, after which they can no longer be found.
+        val seen = linkedSetOf<Int>()
+        val stack = ArrayDeque<Int>()
+        stack.addLast(root)
+        while (stack.isNotEmpty()) {
+            val pid = stack.removeLast()
+            if (!seen.add(pid)) continue
+            processTree.childrenOf(pid).forEach { stack.addLast(it) }
+        }
+        for (pid in seen.toList()) processTree.signal(pid, SIGKILL)
     }
 
     private fun delayForAttempt(attempt: Int): Long = when {
