@@ -53,6 +53,28 @@ kotlin {
     }
 }
 
+// Android unit tests compile with `-no-jdk`, so the jdk.httpserver module is
+// not on the compile classpath. Package its classes into a jar the tests can
+// use, since com.sun.net.httpserver ships only inside the JDK module.
+val jdkHttpserverJar by tasks.registering(Jar::class) {
+    archiveFileName.set("jdk-httpserver.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("test-libs"))
+    from(zipTree(file("${System.getProperty("java.home")}/jmods/jdk.httpserver.jmod"))) {
+        include("classes/**")
+    }
+    eachFile {
+        if (relativePath.pathString.startsWith("classes/")) {
+            relativePath = RelativePath(true, *relativePath.segments.drop(1).toTypedArray())
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == "compileDebugUnitTestKotlin" || name == "testDebugUnitTest") {
+        dependsOn(jdkHttpserverJar)
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -64,4 +86,5 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
+    testImplementation(files(layout.buildDirectory.file("test-libs/jdk-httpserver.jar")))
 }
