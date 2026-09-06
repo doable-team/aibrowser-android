@@ -86,5 +86,6 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation(files(layout.buildDirectory.file("test-libs/jdk-httpserver.jar")))
 }

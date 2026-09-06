@@ -27,7 +27,7 @@ import dev.mrbean.aibrowser.engine.InstallState
 import java.util.Locale
 
 @Composable
-fun SetupScreen(viewModel: SetupViewModel = viewModel()) {
+fun SetupScreen(viewModel: SetupViewModel = viewModel(factory = SetupViewModel.Factory)) {
     val state by viewModel.state.collectAsState()
     Column(
         Modifier

@@ -78,6 +78,9 @@ class RootfsInstaller(
 
     suspend fun install(manifestUrl: String) = withContext(Dispatchers.IO) {
         try {
+            // Android moves the native library directory on every install, so
+            // the bin/ and lib/ symlinks are refreshed before proot is needed.
+            NativeBinaries.prepare(paths)
             paths.data.mkdirs()
             paths.rootfs.mkdirs()
 

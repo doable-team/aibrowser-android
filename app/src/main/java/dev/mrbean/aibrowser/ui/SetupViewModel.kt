@@ -2,14 +2,15 @@ package dev.mrbean.aibrowser.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import dev.mrbean.aibrowser.AiBrowserApp
+import dev.mrbean.aibrowser.AppGraph
 import dev.mrbean.aibrowser.engine.ConfigStore
-import dev.mrbean.aibrowser.engine.Downloader
 import dev.mrbean.aibrowser.engine.InstallState
 import dev.mrbean.aibrowser.engine.NativeBinaries
-import dev.mrbean.aibrowser.engine.Paths
-import dev.mrbean.aibrowser.engine.ProcessRunner
-import dev.mrbean.aibrowser.engine.RootfsInstaller
 import dev.mrbean.aibrowser.engine.SelfTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,11 +31,10 @@ data class SetupUiState(
     val rootfsBusy: Boolean = false,
 )
 
-class SetupViewModel(application: Application) : AndroidViewModel(application) {
-    private val paths = Paths.from(application)
-    private val runner = ProcessRunner()
-    private val selfTest = SelfTest(paths, runner)
-    private val installer = RootfsInstaller(paths, runner, Downloader(), ConfigStore(paths.data))
+class SetupViewModel(graph: AppGraph, application: Application) : AndroidViewModel(application) {
+    private val paths = graph.paths
+    private val selfTest = SelfTest(paths, graph.runner)
+    private val installer = graph.installer
 
     private val _state = MutableStateFlow(SetupUiState())
     val state: StateFlow<SetupUiState> = _state.asStateFlow()
@@ -128,6 +128,15 @@ class SetupViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 installJob = null
                 _state.update { it.copy(rootfsBusy = false) }
+            }
+        }
+    }
+
+    companion object {
+        val Factory = viewModelFactory {
+            initializer {
+                val app = this[APPLICATION_KEY] as AiBrowserApp
+                SetupViewModel(app.graph, app)
             }
         }
     }

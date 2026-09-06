@@ -4,7 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import dev.mrbean.aibrowser.ui.AiBrowserApp
+import dev.mrbean.aibrowser.ui.AiBrowserRoot
 import dev.mrbean.aibrowser.ui.theme.AiBrowserTheme
 
 class MainActivity : ComponentActivity() {
@@ -13,7 +13,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AiBrowserTheme {
-                AiBrowserApp()
+                AiBrowserRoot()
             }
         }
     }

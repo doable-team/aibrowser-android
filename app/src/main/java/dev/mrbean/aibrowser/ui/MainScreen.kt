@@ -32,7 +32,7 @@ private enum class Destination(val route: String, val label: String, val icon: I
 }
 
 @Composable
-fun AiBrowserApp() {
+fun AiBrowserRoot() {
     val navController = rememberNavController()
     Scaffold(
         bottomBar = {
@@ -64,7 +64,19 @@ fun AiBrowserApp() {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(Destination.Setup.route) { SetupScreen() }
-            composable(Destination.Dashboard.route) { PlaceholderScreen("Dashboard") }
+            composable(Destination.Dashboard.route) {
+                DashboardScreen(
+                    onGoToSetup = {
+                        navController.navigate(Destination.Setup.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
             composable(Destination.Preview.route) { PlaceholderScreen("Preview") }
             composable(Destination.Settings.route) { PlaceholderScreen("Settings") }
         }
