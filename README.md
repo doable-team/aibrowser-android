@@ -29,18 +29,47 @@ Cloudflare tunnel  ->  phone: gate (8931)  ->  Playwright MCP (18931)  ->  Chrom
 you                ->  phone: noVNC (6080)  ->  VNC server  ->  the same screen
 ```
 
-## Building
+## Install (personal use)
 
-Requirements: JDK 17, the Android SDK (platform 35, build-tools 35), Docker
+Sideload the release APK from `app/build/outputs/apk/release/app-release.apk`
+(or the debug one from `app/build/outputs/apk/debug/app-debug.apk`), then open
+the app.
+
+- Setup: "Prepare" runs the proot self-test; "Install" downloads the rootfs
+  (default manifest URL `https://mrbean.dev/aibrowser/manifest.json`, about
+  300 MB, then a few minutes of extraction); then do the Android checks
+  (battery optimisation exemption, disable child process restrictions).
+- Settings: paste the Cloudflare tunnel token, add an API token (shown once),
+  set the MCP hostname.
+- Dashboard: "Start all".
+
+The three public hostnames you create in Zero Trust map to these local ports:
+
+| hostname | local port |
+|---|---|
+| MCP | 8931 |
+| status | 8932 |
+| viewer | 6080 |
+
+The MCP URL for your agent is `https://<mcp host>/mcp?token=<token>`. Put the
+viewer hostname behind a Cloudflare Access login so the screen stays private.
+
+## Build from source
+
+Requirements: JDK 17, the Android SDK (platform 36, build-tools 35), Docker
 for the rootfs image. Then:
 
 ```
 scripts/fetch-native.sh          # proot, busybox, tar as jniLibs
 ./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
+scripts/make-keystore.sh         # release.jks + keystore.properties (signing)
+./gradlew assembleRelease        # app/build/outputs/apk/release/app-release.apk
 scripts/rootfs/build.sh          # scripts/rootfs/out/aibrowser-rootfs-<v>-arm64.tar.xz
 ```
 
-The app downloads the rootfs on first run from this repository's releases.
+To host the rootfs yourself, put `manifest.json` plus the tarball and its
+`.sha256` in one folder on any HTTPS host and point the app's mirror URL at
+`https://<host>/<folder>/manifest.json`.
 
 ## Licence
 
