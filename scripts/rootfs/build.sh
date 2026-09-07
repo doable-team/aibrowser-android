@@ -43,19 +43,21 @@ docker create --name "$CTN" "$IMG" >/dev/null
 docker export "$CTN" | xz -T0 -6 > "$OUTFILE"
 docker rm -f "$CTN" >/dev/null
 
-echo "==> Hashing..."
+echo "==> Hashing and counting entries (the app shows extraction progress against this count)..."
 SHA256="$(sha256sum "$OUTFILE" | cut -d' ' -f1)"
 SIZE="$(stat -c %s "$OUTFILE")"
+ENTRIES="$(tar -tJf "$OUTFILE" | wc -l)"
 printf '%s  %s\n' "$SHA256" "$FILE" > "$OUTFILE.sha256"
 
 echo "==> Writing manifest..."
-python3 - "$OUT" "$VERSION" "$FILE" "$SHA256" "$SIZE" "$CHROMIUM" "$CLOUDFLARED" "$PMCP" "$BASE_URL" <<'EOF'
+python3 - "$OUT" "$VERSION" "$FILE" "$SHA256" "$SIZE" "$CHROMIUM" "$CLOUDFLARED" "$PMCP" "$BASE_URL" "$ENTRIES" <<'EOF'
 import json, sys
-out, version, file, sha256, size, chrom, cfd, pmcp, base = sys.argv[1:]
+out, version, file, sha256, size, chrom, cfd, pmcp, base, entries = sys.argv[1:]
 manifest = {
     "version": version,
     "file": file,
     "size": int(size),
+    "entries": int(entries),
     "sha256": sha256,
     "url": f"{base.rstrip('/')}/{file}",
     "minApp": "0.1.0",
