@@ -11,13 +11,13 @@ import kotlinx.coroutines.delay
 
 /**
  * True when the service is up or retrying, so a configuration change must
- * restart it to re-read its files. A [ServiceState.Stopped] or
- * [ServiceState.Disabled] service picks the new files up the next time it
+ * restart it to re-read its files. A [ServiceState.Stopped], [ServiceState.Failed]
+ * or [ServiceState.Disabled] service picks the new files up the next time it
  * starts anyway, so nothing needs to be done.
  */
 fun decideRestart(state: ServiceState?): Boolean = when (state) {
     is ServiceState.Running, is ServiceState.Starting, is ServiceState.Backoff -> true
-    is ServiceState.Stopped, is ServiceState.Disabled, null -> false
+    is ServiceState.Stopped, is ServiceState.Failed, is ServiceState.Disabled, null -> false
 }
 
 /**

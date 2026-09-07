@@ -274,6 +274,7 @@ private fun ServiceCard(
 
 private fun stateChip(state: ServiceState?, nowMs: Long): String = when (state) {
     is ServiceState.Disabled -> "Disabled — ${state.reason}"
+    is ServiceState.Failed -> "Failed — ${state.reason}"
     is ServiceState.Starting -> "Starting"
     is ServiceState.Running -> "Running · ${formatDuration(nowMs - state.sinceMs)}"
     is ServiceState.Backoff -> {
@@ -288,6 +289,7 @@ private fun stateChip(state: ServiceState?, nowMs: Long): String = when (state) 
 private fun statusChipColor(state: ServiceState?): Color = when (state) {
     is ServiceState.Running -> MaterialTheme.colorScheme.secondary
     is ServiceState.Starting, is ServiceState.Backoff -> MaterialTheme.colorScheme.tertiary
+    is ServiceState.Failed -> MaterialTheme.colorScheme.error
     is ServiceState.Stopped, is ServiceState.Disabled, null -> MaterialTheme.colorScheme.outline
 }
 
@@ -296,9 +298,19 @@ private fun isStarted(state: ServiceState?): Boolean = when (state) {
     else -> false
 }
 
-private fun formatDuration(ms: Long): String {
+internal fun formatDuration(ms: Long): String {
     val totalSec = ms / 1000
-    val minutes = totalSec / 60
+    if (totalSec <= 0) return "0 s"
+    val days = totalSec / 86_400
+    val hours = (totalSec % 86_400) / 3_600
+    val minutes = (totalSec % 3_600) / 60
     val seconds = totalSec % 60
-    return if (minutes > 0) "$minutes m $seconds s" else "$seconds s"
+    return when {
+        days > 0 -> "$days d ${two(hours)} h ${two(minutes)} m"
+        hours > 0 -> "$hours h ${two(minutes)} m ${two(seconds)} s"
+        minutes > 0 -> "$minutes m ${two(seconds)} s"
+        else -> "$seconds s"
+    }
 }
+
+private fun two(n: Long): String = n.toString().padStart(2, '0')

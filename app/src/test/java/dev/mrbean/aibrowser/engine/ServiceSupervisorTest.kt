@@ -37,6 +37,8 @@ class ServiceSupervisorTest {
         var exitCode = 0
         var exitDelayMs = 0L
         var linesToEmit = 0
+        /** When set, emitted lines use this text instead of `line-<n>`. */
+        var lineText: String? = null
         var destroyed = false
         var processTree: FakeProcessTree? = null
 
@@ -64,7 +66,7 @@ class ServiceSupervisorTest {
                 } else {
                     delay(exitDelayMs)
                 }
-                repeat(linesToEmit) { onLine("line-$it", false) }
+                repeat(linesToEmit) { onLine(lineText ?: "line-$it", false) }
                 return RunResult(exitCode, false)
             } catch (e: CancellationException) {
                 destroyed = true
@@ -308,5 +310,70 @@ class ServiceSupervisorTest {
 
         assertTrue(supervisor.logLines("gate").isEmpty())
         assertEquals("", File(paths.logs, "gate.log").readText())
+    }
+
+    @Test
+    fun `the first port-conflict exit still backs off`() = runTest {
+        runner.exitCode = 1
+        runner.exitDelayMs = 0
+        runner.lineText = "Address already in use"
+        runner.linesToEmit = 1
+        val supervisor = ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        supervisor.start("gate")
+        runCurrent()
+
+        // A single occurrence is retried: our own dying process may hold the
+        // port while it lets go.
+        assertEquals(ServiceState.Backoff(1000, 1, 1), supervisor.statuses.value["gate"]?.state)
+        assertEquals(1, supervisor.statuses.value["gate"]?.restarts)
+    }
+
+    @Test
+    fun `the second port-conflict exit fails the service and stops starting it`() = runTest {
+        runner.exitCode = 1
+        runner.exitDelayMs = 0
+        runner.lineText = "Address already in use"
+        runner.linesToEmit = 1
+        val supervisor = ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        supervisor.start("gate")
+        runCurrent()
+        assertEquals(ServiceState.Backoff(1000, 1, 1), supervisor.statuses.value["gate"]?.state)
+
+        advanceTimeBy(1000)
+        runCurrent()
+
+        assertEquals(ServiceState.Failed(PortConflict.REASON), supervisor.statuses.value["gate"]?.state)
+        assertEquals(2, supervisor.statuses.value["gate"]?.restarts)
+
+        // Nothing is retried after the failure: the process is never started again.
+        val calls = runner.calls.size
+        advanceTimeBy(100_000)
+        runCurrent()
+        assertEquals(calls, runner.calls.size)
+    }
+
+    @Test
+    fun `a failed service can be started again and runs`() = runTest {
+        runner.exitCode = 1
+        runner.exitDelayMs = 0
+        runner.lineText = "Address already in use"
+        runner.linesToEmit = 1
+        val supervisor = ServiceSupervisor(paths, runner, backgroundScope, clock = { testScheduler.currentTime })
+
+        supervisor.start("gate")
+        runCurrent()
+        advanceTimeBy(1000)
+        runCurrent()
+        assertEquals(ServiceState.Failed(PortConflict.REASON), supervisor.statuses.value["gate"]?.state)
+
+        // The port frees up: the next start must clear the conflict count and run.
+        runner.lineText = null
+        runner.exitDelayMs = 10_000
+        supervisor.start("gate")
+        runCurrent()
+
+        assertTrue(supervisor.statuses.value["gate"]?.state is ServiceState.Running)
     }
 }

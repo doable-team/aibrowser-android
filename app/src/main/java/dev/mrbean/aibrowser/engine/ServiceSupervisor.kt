@@ -34,6 +34,9 @@ sealed class ServiceState {
     /** The process exited unexpectedly; a retry is scheduled for [retryAtMs]. */
     data class Backoff(val retryAtMs: Long, val attempt: Int, val lastExit: Int) : ServiceState()
 
+    /** Gave up: the process cannot run until something changes, e.g. its port is taken. */
+    data class Failed(val reason: String) : ServiceState()
+
     /** Stopped on purpose. */
     data object Stopped : ServiceState()
 }
@@ -87,6 +90,8 @@ class ServiceSupervisor(
     private val jobs = mutableMapOf<String, Job>()
     private val stoppedOnPurpose = mutableMapOf<String, Boolean>()
     private val restarts = mutableMapOf<String, Int>()
+    /** Consecutive port-conflict exits per service; reaching two fails the service. */
+    private val portConflictCounts = mutableMapOf<String, Int>()
     private val rings = mutableMapOf<String, LogRing>()
     private val prootPids = mutableMapOf<String, Int>()
     /** The guest root below each proot, captured shortly after start for the crash path. */
@@ -122,6 +127,9 @@ class ServiceSupervisor(
             }
             if (jobs[name]?.isActive == true) return
             stoppedOnPurpose[name] = false
+            // A fresh start begins with a clean count, so a single port conflict
+            // on restart does not carry a failure over from the previous run.
+            portConflictCounts.remove(name)
             jobs[name] = launchLoop(name)
         }
     }
@@ -248,6 +256,23 @@ class ServiceSupervisor(
             val oldGuest = guestPids.remove(name)
             if (oldProotPid != null) killGuestTree(oldProotPid)
             if (oldGuest != null) killTree(oldGuest)
+            // A taken port cannot be released by retrying: the other process owns
+            // it for as long as it runs. A single occurrence still retries once,
+            // because our own dying process may hold the port while it lets go.
+            val portConflicts = if (PortConflict.detected(snapshotRing(name))) {
+                (portConflictCounts[name] ?: 0) + 1
+            } else {
+                0
+            }
+            portConflictCounts[name] = portConflicts
+            if (portConflicts >= 2) {
+                restarts[name] = (restarts[name] ?: 0) + 1
+                portConflictCounts.remove(name)
+                setState(name, ServiceState.Failed(PortConflict.REASON))
+                // The loop ends here: nothing is retried, and stop()/start() can
+                // still take over because stoppedOnPurpose was left untouched.
+                break
+            }
             if (clock() - startedAt >= RESET_AFTER_RUNNING_MS) attempt = 0
             val delayMs = delayForAttempt(attempt + 1)
             attempt += 1
