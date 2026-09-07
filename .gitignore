@@ -22,3 +22,6 @@ keystore.properties
 # Python bytecode from syntax checks
 __pycache__/
 *.pyc
+
+# Internal development notes: never published
+/docs/
