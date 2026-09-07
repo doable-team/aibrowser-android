@@ -51,10 +51,13 @@ class RootfsInstaller(
     private val runner: ProcessRunner,
     private val downloader: Downloader,
     private val config: ConfigStore,
+    private val servicesRunning: () -> Boolean = { false },
 ) {
 
     private companion object {
         const val MANIFEST_FILE = "rootfs-manifest.json"
+        const val STOP_SERVICES_MESSAGE = "stop the services before reinstalling the userland"
+        const val REMOVE_TIMEOUT_MS = 5 * 60 * 1000L
         const val EXTRACT_TIMEOUT_MS = 30 * 60 * 1000L
         const val TICKER_INTERVAL_MS = 1_000L
         const val EVERY_NTH_LINE = 200L
@@ -80,6 +83,12 @@ class RootfsInstaller(
 
     suspend fun install(manifestUrl: String) = withContext(Dispatchers.IO) {
         try {
+            // Never wipe or replace a userland the services are still running
+            // out of; the update flow stops them first.
+            if (servicesRunning()) {
+                _state.value = InstallState.Failed(STOP_SERVICES_MESSAGE)
+                return@withContext
+            }
             // Android moves the native library directory on every install, so
             // the bin/ and lib/ symlinks are refreshed before proot is needed.
             NativeBinaries.prepare(paths)
@@ -147,12 +156,18 @@ class RootfsInstaller(
             }
             throw e
         } catch (e: Exception) {
-            _state.value = InstallState.Failed(e.message ?: e.javaClass.simpleName)
+            _state.value = InstallState.Failed(describe("install failed", e))
         }
     }
 
     suspend fun uninstall() = withContext(Dispatchers.IO) {
         try {
+            // Same guard as install(): deleting the rootfs out from under the
+            // running services would kill them from underneath.
+            if (servicesRunning()) {
+                _state.value = InstallState.Failed(STOP_SERVICES_MESSAGE)
+                return@withContext
+            }
             deleteTreeNoFollow(paths.rootfs)
             currentTarball?.let { deleteTarball(it) }
             currentTarball = null
@@ -161,7 +176,7 @@ class RootfsInstaller(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = InstallState.Failed(e.message ?: e.javaClass.simpleName)
+            _state.value = InstallState.Failed(describe("uninstall failed", e))
         }
     }
 
@@ -236,21 +251,73 @@ class RootfsInstaller(
      * visited as files and removed, never descended into. Uses
      * [Files.walkFileTree] (which never follows links) instead of `Files.walk`.
      */
-    private fun deleteTreeNoFollow(dir: File) {
+    private suspend fun deleteTreeNoFollow(dir: File) {
         if (!dir.exists()) return
-        Files.walkFileTree(
-            dir.toPath(),
-            object : SimpleFileVisitor<Path>() {
-                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    Files.deleteIfExists(file)
-                    return FileVisitResult.CONTINUE
-                }
+        // First pass: plain Java. A single stubborn entry must not abort the
+        // walk, so every failure continues instead of throwing; the Debian
+        // tree has directories this pass cannot empty (restrictive modes, and
+        // the mount point for the data directory).
+        runCatching {
+            Files.walkFileTree(
+                dir.toPath(),
+                object : SimpleFileVisitor<Path>() {
+                    override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                        runCatching { Files.deleteIfExists(file) }
+                        return FileVisitResult.CONTINUE
+                    }
 
-                override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
-                    Files.deleteIfExists(dir)
-                    return FileVisitResult.CONTINUE
-                }
-            },
+                    override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult {
+                        runCatching { Files.deleteIfExists(file) }
+                        return FileVisitResult.CONTINUE
+                    }
+
+                    override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
+                        runCatching { Files.deleteIfExists(dir) }
+                        return FileVisitResult.CONTINUE
+                    }
+                },
+            )
+        }
+        if (!dir.exists()) return
+        // Second pass: the bundled busybox under proot, which runs as fake root
+        // and drops what the walker could not.
+        val spec = ProcessSpec(
+            argv = listOf(
+                File(paths.bin, "proot").absolutePath,
+                "--link2symlink",
+                "-0",
+                File(paths.bin, "busybox").absolutePath,
+                "rm",
+                "-rf",
+                dir.absolutePath,
+            ),
+            env = prootEnv(paths),
         )
+        val stderr = StringBuilder()
+        val result = runner.run(spec, cwd = paths.root, timeoutMs = REMOVE_TIMEOUT_MS) { line, isStderr ->
+            if (isStderr) synchronized(stderr) { stderr.append(line).append('\n') }
+        }
+        if (dir.exists()) {
+            val detail = synchronized(stderr) { stderr.toString().trim() }
+            throw InstallException(
+                "could not remove the old userland (exit ${result.exitCode})" +
+                    if (detail.isEmpty()) "" else ": $detail",
+            )
+        }
+    }
+
+    /**
+     * A message a person can act on. Several file-system exceptions carry only
+     * a path as their message, which on its own says nothing about what went
+     * wrong, so the exception type is always named.
+     */
+    private fun describe(step: String, e: Throwable): String {
+        val message = e.message?.trim()
+        val type = e.javaClass.simpleName
+        return when {
+            e is InstallException && !message.isNullOrEmpty() -> "$step: $message"
+            message.isNullOrEmpty() -> "$step: $type"
+            else -> "$step: $type: $message"
+        }
     }
 }

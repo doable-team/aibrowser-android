@@ -210,6 +210,40 @@ class RootfsInstallerTest {
         assertFalse(installer.isInstalled())
     }
 
+    @Test
+    fun `install refuses while services run and never touches the rootfs or the runner`() = runBlocking {
+        val env = File(paths.rootfs, "usr/bin/env")
+        env.parentFile?.mkdirs()
+        env.writeText("env")
+        val installer = RootfsInstaller(paths, fakeRunner, Downloader(), config) { true }
+
+        installer.install("$base/manifest.json")
+
+        val state = installer.state.value
+        assertTrue("expected Failed, got $state", state is InstallState.Failed)
+        assertTrue((state as InstallState.Failed).message.contains("stop the services"))
+        assertTrue("the rootfs must be left untouched", File(paths.rootfs, "usr/bin/env").exists())
+        assertTrue("the runner must never be called", fakeRunner.calls.isEmpty())
+        assertFalse(File(paths.data, "rootfs-manifest.json").exists())
+    }
+
+    @Test
+    fun `uninstall refuses while services run and leaves the rootfs and config alone`() = runBlocking {
+        val env = File(paths.rootfs, "usr/bin/env")
+        env.parentFile?.mkdirs()
+        env.writeText("env")
+        config.save(config.load().copy(rootfsVersion = "0.1.0"))
+        val installer = RootfsInstaller(paths, fakeRunner, Downloader(), config) { true }
+
+        installer.uninstall()
+
+        val state = installer.state.value
+        assertTrue("expected Failed, got $state", state is InstallState.Failed)
+        assertTrue((state as InstallState.Failed).message.contains("stop the services"))
+        assertTrue("the rootfs must be left untouched", File(paths.rootfs, "usr/bin/env").exists())
+        assertEquals("0.1.0", config.load().rootfsVersion)
+    }
+
     private fun serve(exchange: HttpExchange, body: ByteArray, contentType: String) {
         try {
             exchange.responseHeaders.add("Content-Type", contentType)
