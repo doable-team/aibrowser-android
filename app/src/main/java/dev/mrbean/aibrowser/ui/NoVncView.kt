@@ -2,6 +2,7 @@ package dev.mrbean.aibrowser.ui
 
 import android.net.Uri
 import android.view.ViewGroup
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -54,6 +55,19 @@ fun NoVncView(
                         @Deprecated("Deprecated in Java")
                         override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
                             Uri.parse(url).host != "127.0.0.1"
+
+                        // The viewer service counts as running before websockify
+                        // listens, so the first load can be refused; retry until
+                        // the page itself is up (noVNC then handles VNC retries).
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?,
+                        ) {
+                            if (request?.isForMainFrame == true && view != null) {
+                                view.postDelayed({ view.loadUrl(url) }, RETRY_DELAY_MS)
+                            }
+                        }
                     }
                     onReady(this)
                 }
@@ -64,3 +78,5 @@ fun NoVncView(
         )
     }
 }
+
+private const val RETRY_DELAY_MS = 2_500L
