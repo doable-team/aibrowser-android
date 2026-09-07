@@ -217,25 +217,21 @@ private fun AndroidChecksCard() {
                     }
                 },
             )
+            // One setting under two names: the exemption request sets what the
+            // app's Battery page calls "Unrestricted" (Android 12+) or "Not
+            // optimised" (older versions).
             CheckRow(
-                label = "Battery optimisation",
+                label = "Battery: unrestricted",
                 ok = batteryIgnored,
                 detail = if (batteryIgnored) {
-                    "Exempt from battery optimisation"
+                    "Battery use is unrestricted; Android will not stop the services in the background."
                 } else {
-                    "Battery optimisation can kill the services in the background"
+                    "Set the app's Battery use to Unrestricted, or Android stops the services in the background."
                 },
-                buttonText = if (batteryIgnored) "Exempt" else "Request exemption",
-                onButton = requestBattery,
+                buttonText = if (batteryIgnored) "App details" else "Request",
+                onButton = if (batteryIgnored) openAppDetails else requestBattery,
             )
             ChildProcessLimitRow(onCheckAgain = checkAgain)
-            CheckRow(
-                label = "Unrestricted background",
-                ok = null,
-                detail = "Open the app's details page and set Battery to Unrestricted.",
-                buttonText = "App details",
-                onButton = openAppDetails,
-            )
         }
     }
 }
