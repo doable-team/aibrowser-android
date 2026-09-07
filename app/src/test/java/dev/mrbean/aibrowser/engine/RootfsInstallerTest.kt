@@ -2,6 +2,7 @@ package dev.mrbean.aibrowser.engine
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -34,6 +35,7 @@ class RootfsInstallerTest {
         val calls = mutableListOf<ProcessSpec>()
         var simulateExtraction: (() -> Unit)? = null
         var result = RunResult(exitCode = 0, timedOut = false)
+        var stdoutLines = 1
 
         override suspend fun run(
             spec: ProcessSpec,
@@ -44,7 +46,7 @@ class RootfsInstallerTest {
         ): RunResult {
             calls.add(spec)
             simulateExtraction?.invoke()
-            onLine("usr/bin/env", false)
+            repeat(stdoutLines) { i -> onLine("entry-$i", false) }
             return result
         }
     }
@@ -159,6 +161,36 @@ class RootfsInstallerTest {
         val tarball = File(paths.data, file)
         assertFalse(tarball.exists())
         assertFalse(File(tarball.path + ".part").exists())
+    }
+
+    @Test
+    fun `extraction reports done and total entries`() = runBlocking {
+        fakeRunner.stdoutLines = 10
+        fakeRunner.simulateExtraction = {
+            val env = File(paths.rootfs, "usr/bin/env")
+            env.parentFile?.mkdirs()
+            env.writeText("env")
+        }
+        val withEntries = manifestJson.replaceFirst(
+            """{"version":"0.1.0","file":""",
+            """{"version":"0.1.0","entries":10,"file":""",
+        )
+        server.createContext("/entries/manifest.json") {
+            exchange -> serve(exchange, withEntries.toByteArray(), "application/json")
+        }
+        server.createContext("/entries/$file") { exchange -> serve(exchange, tarballBytes, "application/octet-stream") }
+
+        val installer = RootfsInstaller(paths, fakeRunner, Downloader(), config)
+        val observed = mutableListOf<InstallState>()
+        val collectJob = launch { installer.state.collect { observed += it } }
+        installer.install("$base/entries/manifest.json")
+
+        assertTrue(
+            "expected an Extracting(done=10,total=10) before Installed, saw: $observed",
+            observed.any { it is InstallState.Extracting && it.done == 10L && it.total == 10L },
+        )
+        assertEquals(InstallState.Installed("0.1.0"), installer.state.value)
+        collectJob.cancel()
     }
 
     @Test

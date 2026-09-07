@@ -19,6 +19,7 @@ data class RootfsManifest(
     val url: String,
     val minApp: String = "",
     val packages: Map<String, String> = emptyMap(),
+    val entries: Long = 0,
 ) {
     fun tarballUrl(manifestUrl: String): String =
         if (manifestUrl.endsWith(MANIFEST_NAME)) {

@@ -607,6 +607,12 @@ private fun RootfsStep(state: OnboardingUiState, viewModel: OnboardingViewModel)
             onCancelInstall = viewModel::cancelInstall,
             onUninstall = viewModel::uninstall,
         )
+        Text(
+            "Extraction takes a few minutes on most phones; the screen can stay on or off.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 

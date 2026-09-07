@@ -406,6 +406,7 @@ private fun isRunning(state: InstallState): Boolean = when (state) {
 private fun progressOf(state: InstallState): Float? = when (state) {
     is InstallState.Downloading -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
     is InstallState.Verifying -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
+    is InstallState.Extracting -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
     else -> null
 }
 
@@ -423,8 +424,23 @@ private fun installStatusText(state: InstallState): String = when (state) {
         "Verifying $percent%"
     }
     is InstallState.Extracting ->
-        if (state.lastPath.isEmpty()) "Extracting, ${state.elapsedSec} s"
-        else "Extracting, ${state.elapsedSec} s, ${state.lastPath}"
+        if (state.total > 0) {
+            val percent = state.done * 100 / state.total
+            buildString {
+                append("Extracting $percent%")
+                append(", ${formatElapsed(state.elapsedSec.toLong())} elapsed")
+                if (state.elapsedSec >= 10 && state.done > 0) {
+                    val estimate = state.elapsedSec * (state.total - state.done) / state.done
+                    append(", about ${formatElapsed(estimate)} left")
+                }
+                append(", ${formatCount(state.done)} of ${formatCount(state.total)} files")
+            }
+        } else {
+            buildString {
+                append("Extracting, ${formatElapsed(state.elapsedSec.toLong())}")
+                if (state.lastPath.isNotEmpty()) append(", ${state.lastPath}")
+            }
+        }
     is InstallState.WritingFiles -> "Writing files"
     is InstallState.Installed -> "Installed ${state.version}"
     is InstallState.Failed -> state.message
@@ -440,3 +456,21 @@ private fun formatBytes(bytes: Long): String {
 }
 
 private fun formatSpeed(bytesPerSecond: Long): String = formatBytes(bytesPerSecond) + "/s"
+
+private fun formatElapsed(seconds: Long): String {
+    val minutes = seconds / 60
+    val secs = seconds % 60
+    return "$minutes m ${"%02d".format(secs)} s"
+}
+
+private fun formatCount(value: Long): String {
+    val digits = value.toString()
+    val out = StringBuilder(digits.length + digits.length / 3)
+    var count = 0
+    for (i in digits.indices) {
+        if (count > 0 && count % 3 == 0) out.append('\u202F')
+        out.append(digits[digits.length - 1 - i])
+        count++
+    }
+    return out.reverse().toString()
+}

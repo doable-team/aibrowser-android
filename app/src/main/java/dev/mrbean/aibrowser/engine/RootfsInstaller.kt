@@ -17,6 +17,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /** Progress of a rootfs install/uninstall, exposed through [RootfsInstaller.state]. */
@@ -25,7 +26,7 @@ sealed interface InstallState {
     data object FetchingManifest : InstallState
     data class Downloading(val done: Long, val total: Long, val bytesPerSecond: Long) : InstallState
     data class Verifying(val done: Long, val total: Long) : InstallState
-    data class Extracting(val elapsedSec: Int, val lastPath: String) : InstallState
+    data class Extracting(val elapsedSec: Int, val lastPath: String, val done: Long, val total: Long) : InstallState
     data object WritingFiles : InstallState
     data class Installed(val version: String) : InstallState
     data class Failed(val message: String) : InstallState
@@ -56,6 +57,7 @@ class RootfsInstaller(
         const val MANIFEST_FILE = "rootfs-manifest.json"
         const val EXTRACT_TIMEOUT_MS = 30 * 60 * 1000L
         const val TICKER_INTERVAL_MS = 1_000L
+        const val EVERY_NTH_LINE = 200L
 
         val RESOLV_CONF = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
         val HOSTS = "127.0.0.1 localhost\n::1 localhost\n"
@@ -183,15 +185,16 @@ class RootfsInstaller(
 
         val startNanos = System.nanoTime()
         val lastPath = AtomicReference("")
+        val doneLines = AtomicLong(0)
         val stderr = StringBuilder()
 
-        _state.value = InstallState.Extracting(0, "")
+        _state.value = InstallState.Extracting(0, "", 0, manifest.entries)
         coroutineScope {
             val ticker = launch {
                 while (isActive) {
                     delay(TICKER_INTERVAL_MS)
                     val elapsedSec = ((System.nanoTime() - startNanos) / 1_000_000_000L).toInt()
-                    _state.value = InstallState.Extracting(elapsedSec, lastPath.get())
+                    _state.value = InstallState.Extracting(elapsedSec, lastPath.get(), doneLines.get(), manifest.entries)
                 }
             }
             try {
@@ -199,7 +202,12 @@ class RootfsInstaller(
                     if (isStderr) {
                         synchronized(stderr) { stderr.append(line).append('\n') }
                     } else {
+                        val done = doneLines.incrementAndGet()
                         lastPath.set(line)
+                        if (done % EVERY_NTH_LINE == 0L) {
+                            val elapsedSec = ((System.nanoTime() - startNanos) / 1_000_000_000L).toInt()
+                            _state.value = InstallState.Extracting(elapsedSec, line, done, manifest.entries)
+                        }
                     }
                 }
                 if (result.exitCode != 0) {
@@ -208,6 +216,8 @@ class RootfsInstaller(
                     val suffix = if (detail.isEmpty()) "" else ": $detail"
                     throw InstallException("extraction failed (exit ${result.exitCode})$timeout$suffix")
                 }
+                val elapsedSec = ((System.nanoTime() - startNanos) / 1_000_000_000L).toInt()
+                _state.value = InstallState.Extracting(elapsedSec, lastPath.get(), doneLines.get(), manifest.entries)
             } finally {
                 ticker.cancel()
             }

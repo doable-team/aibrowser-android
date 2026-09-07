@@ -21,6 +21,16 @@ class RootfsManifestTest {
         )
         assertEquals("0.1.0", manifest.minApp)
         assertEquals(mapOf("chromium" to "152.0.7977.82-1~deb13u1"), manifest.packages)
+        assertEquals(0L, manifest.entries)
+    }
+
+    @Test
+    fun `parses the entries field when present`() {
+        val withEntries = """{"version":"0.2.0","file":"aibrowser-rootfs-0.2.0-arm64.tar.xz","size":1,"sha256":"a","url":"u","entries":46123}"""
+
+        val manifest = RootfsManifest.parse(withEntries)
+
+        assertEquals(46123L, manifest.entries)
     }
 
     @Test
