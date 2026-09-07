@@ -406,7 +406,7 @@ private fun isRunning(state: InstallState): Boolean = when (state) {
 private fun progressOf(state: InstallState): Float? = when (state) {
     is InstallState.Downloading -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
     is InstallState.Verifying -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
-    is InstallState.Extracting -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
+    is InstallState.Extracting -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 0.99f) else null
     else -> null
 }
 
@@ -425,21 +425,30 @@ private fun installStatusText(state: InstallState): String = when (state) {
     }
     is InstallState.Extracting ->
         if (state.total > 0) {
-            val percent = state.done * 100 / state.total
-            buildString {
-                append("Extracting $percent%")
-                append(", ${formatElapsed(state.elapsedSec.toLong())} elapsed")
-                if (state.elapsedSec >= 10 && state.done > 0) {
+            // tar keeps working after the last entry (delayed directory
+            // restore), so the bar never claims 100% before Installed.
+            val finishing = state.done >= state.total
+            val percent = if (finishing) 99 else state.done * 100 / state.total
+            val timing = buildString {
+                append("${formatElapsed(state.elapsedSec.toLong())} elapsed")
+                if (finishing) {
+                    append(", finishing up")
+                } else if (state.elapsedSec >= 10 && state.done > 0) {
                     val estimate = state.elapsedSec * (state.total - state.done) / state.done
-                    append(", about ${formatElapsed(estimate)} left")
+                    append(", about ${formatRemaining(estimate)} left")
                 }
-                append(", ${formatCount(state.done)} of ${formatCount(state.total)} files")
             }
+            listOf(
+                if (finishing) "Extracting: finishing up" else "Extracting $percent%",
+                "${formatCount(state.done)} of ${formatCount(state.total)} files",
+                timing,
+            ).joinToString("\n")
         } else {
-            buildString {
-                append("Extracting, ${formatElapsed(state.elapsedSec.toLong())}")
-                if (state.lastPath.isNotEmpty()) append(", ${state.lastPath}")
-            }
+            listOf(
+                "Extracting",
+                "${formatElapsed(state.elapsedSec.toLong())} elapsed",
+                state.lastPath,
+            ).filter { it.isNotEmpty() }.joinToString("\n")
         }
     is InstallState.WritingFiles -> "Writing files"
     is InstallState.Installed -> "Installed ${state.version}"
@@ -460,7 +469,13 @@ private fun formatSpeed(bytesPerSecond: Long): String = formatBytes(bytesPerSeco
 private fun formatElapsed(seconds: Long): String {
     val minutes = seconds / 60
     val secs = seconds % 60
-    return "$minutes m ${"%02d".format(secs)} s"
+    return if (minutes == 0L) "$secs s" else "$minutes m ${"%02d".format(secs)} s"
+}
+
+private fun formatRemaining(seconds: Long): String = when {
+    seconds < 10 -> "a few seconds"
+    seconds < 60 -> "$seconds s"
+    else -> "${(seconds + 30) / 60} min"
 }
 
 private fun formatCount(value: Long): String {
