@@ -1,5 +1,7 @@
 # AiBrowser for Android
 
+![AiBrowser: an AI agent reaches a Chromium on your own phone through a Cloudflare tunnel, and you watch it live](banners/banner1.png)
+
 Turn a spare Android phone into a headed Chromium that AI agents drive over
 MCP from anywhere, with a live view of the screen for you. One APK, no root,
 no Termux.
@@ -31,15 +33,23 @@ Cloudflare tunnel  ->  phone: gate (8931)  ->  Playwright MCP (18931)  ->  Chrom
 you                ->  phone: noVNC (6080)  ->  VNC server  ->  the same screen
 ```
 
+## What it looks like
+
+| Control panel | Landscape | Settings |
+|---|---|---|
+| ![The dashboard: a live view of the browser on the phone, the service list, and Start/Stop/Restart all](banners/screenshot-home.png) | ![Landscape: a navigation rail on the left, the viewer beside the service list](banners/screenshot-landscape.png) | ![Settings: Chromium flags, extensions installed from a picked zip, and the rootfs update check](banners/screenshot-settings.png) |
+
+The live view is the real Chromium on the phone, over noVNC. Flip "View only"
+off to click and type in it yourself.
+
 ## Install (personal use)
 
-Sideload the release APK from `app/build/outputs/apk/release/app-release.apk`
-(or the debug one from `app/build/outputs/apk/debug/app-debug.apk`), then open
-the app.
+Sideload the APK from the [latest release](https://github.com/mrbeandev/aibrowser-android/releases),
+or build one yourself (below), then open the app.
 
 - Setup: "Prepare" runs the proot self-test; "Install" downloads the rootfs
-  (default manifest URL `https://mrbean.dev/aibrowser/manifest.json`, about
-  300 MB, then a few minutes of extraction); then do the Android checks
+  (about 300 MB from this repository's `rootfs` release, then a few minutes
+  of extraction); then do the Android checks
   (battery optimisation exemption, disable child process restrictions).
 - Settings: paste the Cloudflare tunnel token, add an API token (shown once),
   set the MCP hostname.
@@ -69,9 +79,22 @@ scripts/make-keystore.sh         # release.jks + keystore.properties (signing)
 scripts/rootfs/build.sh          # scripts/rootfs/out/aibrowser-rootfs-<v>-arm64.tar.xz
 ```
 
-To host the rootfs yourself, put `manifest.json` plus the tarball and its
-`.sha256` in one folder on any HTTPS host and point the app's mirror URL at
-`https://<host>/<folder>/manifest.json`.
+### Where the userland comes from
+
+The app downloads it from the rolling [`rootfs`](https://github.com/mrbeandev/aibrowser-android/releases/tag/rootfs)
+release of this repository, which always carries the newest `manifest.json`,
+tarball and `.sha256`. Because the tag never changes, publishing a new
+userland there is offered as an update in Settings without an app update:
+
+```
+gh release upload rootfs manifest.json aibrowser-rootfs-<v>-arm64.tar.xz{,.sha256} --clobber
+```
+
+To host it yourself instead, put those three files in one folder on any HTTPS
+host and point the app's manifest URL at `https://<host>/<folder>/manifest.json`.
+The tarball is fetched from the same folder, resumed on a dropped connection,
+and checked against the size and SHA-256 in the manifest before it replaces
+anything.
 
 ## Licence
 

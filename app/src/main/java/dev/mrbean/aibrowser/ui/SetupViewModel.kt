@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal const val DEFAULT_MANIFEST_URL = "https://mrbean.dev/aibrowser/manifest.json"
+internal const val DEFAULT_MANIFEST_URL = "https://github.com/mrbeandev/aibrowser-android/releases/download/rootfs/manifest.json"
 
 data class SetupUiState(
     val busy: Boolean = false,

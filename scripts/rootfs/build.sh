@@ -8,7 +8,7 @@ DOCKERFILE="$ROOT/scripts/rootfs/Dockerfile"
 
 VERSION="$(cat "$OVERLAY/opt/aibrowser/VERSION")"
 # Where the files will be served from; the manifest's url is <base>/<file>.
-BASE_URL="${ROOTFS_BASE_URL:-https://mrbean.dev/aibrowser}"
+BASE_URL="${ROOTFS_BASE_URL:-https://github.com/mrbeandev/aibrowser-android/releases/download/rootfs}"
 IMG="aibrowser-rootfs:$VERSION"
 CTN="aibrowser-rootfs-build-$VERSION"
 FILE="aibrowser-rootfs-$VERSION-arm64.tar.xz"
