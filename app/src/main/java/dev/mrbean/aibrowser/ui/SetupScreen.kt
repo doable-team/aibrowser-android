@@ -37,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import dev.mrbean.aibrowser.engine.PhantomProcessGuard
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -271,35 +272,51 @@ private fun CheckRow(
 @Composable
 private fun ChildProcessLimitRow(onCheckAgain: () -> Unit) {
     val context = LocalContext.current
+    var state by remember { mutableStateOf(PhantomProcessGuard.ensureDisabled(context)) }
+    var canWrite by remember { mutableStateOf(PhantomProcessGuard.canWrite(context)) }
+    val disabled = state == PhantomProcessGuard.State.DISABLED
     Row(
         Modifier
             .fillMaxWidth()
             .padding(top = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusIcon(null)
+        StatusIcon(disabled)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text("Child process limit", style = MaterialTheme.typography.titleSmall)
             Text(
-                "In Developer options, \"Disable child process restrictions\" must be on " +
-                    "(Android 12 to 14).\nOn Android 15+ the limit is per app and usually fine.",
+                if (disabled) {
+                    if (canWrite) "Restriction disabled; the app keeps it off across reboots."
+                    else "Restriction disabled by the developer option. It can reset on reboot: " +
+                        "grant the app the secure-settings permission once to make it permanent."
+                } else {
+                    "Android kills an app's child processes beyond 32; the browser services count. " +
+                        "Turn on \"Disable child process restrictions\" in Developer options, or grant " +
+                        "the app permission to do it itself."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 2.dp),
             )
-            Text(
-                "This cannot be checked here.",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+            if (!canWrite) {
+                Text(
+                    PhantomProcessGuard.GRANT_COMMAND,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             Row(Modifier.padding(top = 4.dp)) {
                 TextButton(onClick = {
                     runCatching {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
                     }
                 }) { Text("Developer options") }
-                TextButton(onClick = onCheckAgain) { Text("Check again") }
+                TextButton(onClick = {
+                    state = PhantomProcessGuard.ensureDisabled(context)
+                    canWrite = PhantomProcessGuard.canWrite(context)
+                    onCheckAgain()
+                }) { Text("Check again") }
             }
         }
     }

@@ -6,6 +6,7 @@ import dev.mrbean.aibrowser.engine.ConfigStore
 import dev.mrbean.aibrowser.engine.Downloader
 import dev.mrbean.aibrowser.engine.NativeBinaries
 import dev.mrbean.aibrowser.engine.Paths
+import dev.mrbean.aibrowser.engine.PhantomProcessGuard
 import dev.mrbean.aibrowser.engine.ProcessRunner
 import dev.mrbean.aibrowser.engine.RootfsInstaller
 import dev.mrbean.aibrowser.engine.ServiceSupervisor
@@ -25,6 +26,9 @@ class AiBrowserApp : Application() {
         // Android moves the native library directory on every install; the
         // bin/ and lib/ symlinks are recreated whenever the process starts.
         NativeBinaries.prepare(paths)
+        // Keep Android from killing the service processes when their number
+        // passes the phantom-process limit; a no-op without the permission.
+        PhantomProcessGuard.ensureDisabled(this)
         val runner = ProcessRunner()
         val config = ConfigStore(paths.data)
         val downloader = Downloader()
