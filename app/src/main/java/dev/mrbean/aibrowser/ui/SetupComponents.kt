@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -254,9 +255,9 @@ fun AndroidChecksCard() {
                 label = "Battery: unrestricted",
                 ok = batteryIgnored,
                 detail = if (batteryIgnored) {
-                    "Battery use is unrestricted; Android will not stop the services in the background."
+                    "Unrestricted; Android will not stop the services."
                 } else {
-                    "Set the app's Battery use to Unrestricted, or Android stops the services in the background."
+                    "Set Battery use to Unrestricted, or Android stops the services."
                 },
                 buttonText = if (batteryIgnored) "App details" else "Request",
                 onButton = if (batteryIgnored) openAppDetails else requestBattery,
@@ -274,24 +275,29 @@ private fun CheckRow(
     buttonText: String,
     onButton: () -> Unit,
 ) {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .padding(top = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusIcon(ok)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.titleSmall)
-            Text(
-                detail,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusIcon(ok)
+            Spacer(Modifier.width(12.dp))
+            Text(label, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
         }
-        Spacer(Modifier.width(8.dp))
-        OutlinedButton(onClick = onButton) { Text(buttonText) }
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = onButton) { Text(buttonText) }
+        }
     }
 }
 
@@ -301,49 +307,53 @@ private fun ChildProcessLimitRow(onCheckAgain: () -> Unit) {
     var state by remember { mutableStateOf(PhantomProcessGuard.ensureDisabled(context)) }
     var canWrite by remember { mutableStateOf(PhantomProcessGuard.canWrite(context)) }
     val disabled = state == PhantomProcessGuard.State.DISABLED
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .padding(top = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusIcon(disabled)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text("Child process limit", style = MaterialTheme.typography.titleSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusIcon(disabled)
+            Spacer(Modifier.width(12.dp))
+            Text("Child process limit", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        }
+        Text(
+            if (disabled) {
+                if (canWrite) "Restriction disabled; the app keeps it off across reboots."
+                else "Restriction disabled by the developer option. It can reset on reboot: " +
+                    "grant the app the secure-settings permission once to make it permanent."
+            } else {
+                "Android kills an app's child processes beyond 32; the browser services count. " +
+                    "Turn on \"Disable child process restrictions\" in Developer options, or grant " +
+                    "the app permission to do it itself."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+        )
+        if (!canWrite) {
             Text(
-                if (disabled) {
-                    if (canWrite) "Restriction disabled; the app keeps it off across reboots."
-                    else "Restriction disabled by the developer option. It can reset on reboot: " +
-                        "grant the app the secure-settings permission once to make it permanent."
-                } else {
-                    "Android kills an app's child processes beyond 32; the browser services count. " +
-                        "Turn on \"Disable child process restrictions\" in Developer options, or grant " +
-                        "the app permission to do it itself."
-                },
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 2.dp),
+                PhantomProcessGuard.GRANT_COMMAND,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 4.dp),
             )
-            if (!canWrite) {
-                Text(
-                    PhantomProcessGuard.GRANT_COMMAND,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            Row(Modifier.padding(top = 4.dp)) {
-                TextButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                    }
-                }) { Text("Developer options") }
-                TextButton(onClick = {
-                    state = PhantomProcessGuard.ensureDisabled(context)
-                    canWrite = PhantomProcessGuard.canWrite(context)
-                    onCheckAgain()
-                }) { Text("Check again") }
-            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = {
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                }
+            }) { Text("Developer options") }
+            TextButton(onClick = {
+                state = PhantomProcessGuard.ensureDisabled(context)
+                canWrite = PhantomProcessGuard.canWrite(context)
+                onCheckAgain()
+            }) { Text("Check again") }
         }
     }
 }

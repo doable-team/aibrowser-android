@@ -2,12 +2,9 @@ package dev.mrbean.aibrowser.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -17,7 +14,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -41,15 +39,14 @@ fun RepairScreen(
     viewModel: SetupViewModel = viewModel(factory = SetupViewModel.Factory),
 ) {
     val state by viewModel.state.collectAsState()
-    Surface(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
-        Column(Modifier.fillMaxSize()) {
+    // The TopAppBar applies the status-bar inset itself; a Scaffold keeps the
+    // navigation-bar padding, so the inset is applied once, not twice.
+    Scaffold(
+        // The shell already pads the system bars for this route; no second inset.
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
             TopAppBar(
+                windowInsets = WindowInsets(0),
                 title = { Text("Repair and reinstall") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -57,12 +54,15 @@ fun RepairScreen(
                     }
                 },
             )
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-            ) {
+        },
+    ) { innerPadding ->
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(innerPadding)
+                .padding(16.dp),
+        ) {
                 NativeBinariesCard(
                     busy = state.busy,
                     report = state.report,
@@ -96,6 +96,5 @@ fun RepairScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-        }
     }
 }

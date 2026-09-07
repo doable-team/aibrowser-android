@@ -4,7 +4,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -32,7 +31,6 @@ import dev.mrbean.aibrowser.MainActivity
 
 private enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     Home("home", "Home", Icons.Filled.Home),
-    Preview("preview", "Preview", Icons.Filled.PlayArrow),
     Settings("settings", "Settings", Icons.Filled.Settings),
 }
 
@@ -55,8 +53,9 @@ fun AiBrowserRoot() {
 @Composable
 private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
     val navController = rememberNavController()
-    // Preview can hide the top and bottom bars through this state.
-    var previewFullscreen by remember { mutableStateOf(false) }
+    // The Home viewer can fill the whole screen through this state, hiding the
+    // top bar and the bottom navigation while the viewer is fullscreen.
+    var viewerFullscreen by remember { mutableStateOf(false) }
 
     // The notification's tap intent selects the Home tab.
     val context = LocalContext.current
@@ -77,13 +76,13 @@ private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     LaunchedEffect(currentRoute) {
-        if (currentRoute != Destination.Preview.route) previewFullscreen = false
+        if (currentRoute != Destination.Home.route) viewerFullscreen = false
     }
     val isTab = currentRoute in Destination.entries.map { it.route }
 
     Scaffold(
         topBar = {
-            if (isTab && !previewFullscreen) {
+            if (isTab && !viewerFullscreen) {
                 TopAppBar(
                     title = {
                         val label = if (currentRoute == Destination.Home.route) {
@@ -97,7 +96,7 @@ private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
             }
         },
         bottomBar = {
-            if (isTab && !previewFullscreen) {
+            if (isTab && !viewerFullscreen) {
                 NavigationBar {
                     Destination.entries.forEach { destination ->
                         NavigationBarItem(
@@ -126,18 +125,11 @@ private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
         ) {
             composable(Destination.Home.route) {
                 HomeScreen(
-                    onOpenPreview = {
-                        navController.navigate(Destination.Preview.route) { launchSingleTop = true }
-                    },
+                    fullscreen = viewerFullscreen,
+                    onFullscreenChange = { viewerFullscreen = it },
                     onGoToRepair = {
                         navController.navigate(REPAIR_ROUTE) { launchSingleTop = true }
                     },
-                )
-            }
-            composable(Destination.Preview.route) {
-                PreviewScreen(
-                    fullscreen = previewFullscreen,
-                    onFullscreenChange = { previewFullscreen = it },
                 )
             }
             composable(Destination.Settings.route) {

@@ -14,7 +14,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 
 /**
  * A WebView hosting noVNC's `vnc.html` on the loopback URL, used by the Home
- * strip and the full-screen Preview. The WebView only ever loads 127.0.0.1
+ * strip and the fullscreen viewer. The WebView only ever loads 127.0.0.1
  * URLs; it is created with MATCH_PARENT params (without them noVNC's container
  * collapses and the canvas draws at 0 by 0) and is recreated only when
  * [viewOnly] changes, so callers keep a live viewer across recompositions.
@@ -68,6 +68,14 @@ fun NoVncView(
                                 view.postDelayed({ view.loadUrl(url) }, RETRY_DELAY_MS)
                             }
                         }
+
+                        // In view-only mode hide noVNC's control bar and its
+                        // handle once the page is up, so only the desktop shows.
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            super.onPageFinished(view, url)
+                            if (view != null) installReconnectWatchdog(view)
+                            if (viewOnly && view != null) hideNoVncChrome(view)
+                        }
                     }
                     onReady(this)
                 }
@@ -80,3 +88,54 @@ fun NoVncView(
 }
 
 private const val RETRY_DELAY_MS = 2_500L
+
+/**
+ * Hides noVNC's control bar, its anchor/handle and the hint element so only
+ * the desktop shows in view-only mode, and fades the status line after 5
+ * seconds unless it carries the error class (error messages stay visible).
+ */
+private fun hideNoVncChrome(webView: WebView) {
+    webView.evaluateJavascript(
+        """
+        (function () {
+          var existing = document.getElementById('aibrowser-hide-bar');
+          if (existing) existing.remove();
+          var style = document.createElement('style');
+          style.id = 'aibrowser-hide-bar';
+          style.textContent = '#noVNC_control_bar_anchor, #noVNC_control_bar, #noVNC_hint { display: none !important; }';
+          (document.head || document.documentElement).appendChild(style);
+          setTimeout(function () {
+            var status = document.getElementById('noVNC_status');
+            if (status && !/error/i.test(status.className || '')) {
+              status.style.display = 'none';
+            }
+          }, 5000);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}
+
+/**
+ * noVNC's own reconnect covers drops after a successful connection, not a
+ * failure before the first one (the VNC server still starting). Reload the
+ * page whenever the status bar has shown an error for a few seconds.
+ */
+private fun installReconnectWatchdog(webView: WebView) {
+    webView.evaluateJavascript(
+        """
+        (function () {
+          if (window.__aibrowserWatchdog) return;
+          var errorSince = 0;
+          window.__aibrowserWatchdog = setInterval(function () {
+            var status = document.getElementById('noVNC_status');
+            var failed = status && /error/i.test(status.className || '');
+            if (!failed) { errorSince = 0; return; }
+            if (!errorSince) { errorSince = Date.now(); return; }
+            if (Date.now() - errorSince > 3000) location.reload();
+          }, 1500);
+        })();
+        """.trimIndent(),
+        null,
+    )
+}

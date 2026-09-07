@@ -359,7 +359,7 @@ private fun SettingsRootfsCard(
                 modifier = Modifier.padding(top = 4.dp),
             )
             Text(
-                "Manifest: ${state.manifestUrl}",
+                "Manifest: ${state.manifestUrl.ifBlank { DEFAULT_MANIFEST_URL }}",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(Modifier.padding(top = 12.dp)) {

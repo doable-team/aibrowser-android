@@ -19,7 +19,11 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk {
+            // The bundled binaries exist for arm64 only. `-PemulatorAbi=true`
+            // adds x86_64 without any native libraries, which lets the screens
+            // run on the desktop emulator (the rootfs and services cannot).
             abiFilters += listOf("arm64-v8a")
+            if (project.findProperty("emulatorAbi") == "true") abiFilters += "x86_64"
         }
     }
 
