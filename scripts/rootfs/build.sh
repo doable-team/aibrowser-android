@@ -7,6 +7,8 @@ OUT="$ROOT/scripts/rootfs/out"
 DOCKERFILE="$ROOT/scripts/rootfs/Dockerfile"
 
 VERSION="$(cat "$OVERLAY/opt/aibrowser/VERSION")"
+# Where the files will be served from; the manifest's url is <base>/<file>.
+BASE_URL="${ROOTFS_BASE_URL:-https://mrbean.dev/aibrowser}"
 IMG="aibrowser-rootfs:$VERSION"
 CTN="aibrowser-rootfs-build-$VERSION"
 FILE="aibrowser-rootfs-$VERSION-arm64.tar.xz"
@@ -47,15 +49,15 @@ SIZE="$(stat -c %s "$OUTFILE")"
 printf '%s  %s\n' "$SHA256" "$FILE" > "$OUTFILE.sha256"
 
 echo "==> Writing manifest..."
-python3 - "$OUT" "$VERSION" "$FILE" "$SHA256" "$SIZE" "$CHROMIUM" "$CLOUDFLARED" "$PMCP" <<'EOF'
+python3 - "$OUT" "$VERSION" "$FILE" "$SHA256" "$SIZE" "$CHROMIUM" "$CLOUDFLARED" "$PMCP" "$BASE_URL" <<'EOF'
 import json, sys
-out, version, file, sha256, size, chrom, cfd, pmcp = sys.argv[1:]
+out, version, file, sha256, size, chrom, cfd, pmcp, base = sys.argv[1:]
 manifest = {
     "version": version,
     "file": file,
     "size": int(size),
     "sha256": sha256,
-    "url": f"https://github.com/mrbeandev/aibrowser-android/releases/download/rootfs-{version}/{file}",
+    "url": f"{base.rstrip('/')}/{file}",
     "minApp": "0.1.0",
     "packages": {"chromium": chrom, "cloudflared": cfd, "playwright-mcp": pmcp},
 }
