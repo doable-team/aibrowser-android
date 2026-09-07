@@ -1,5 +1,6 @@
 package dev.mrbean.aibrowser.ui
 
+import android.content.res.Configuration
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -40,9 +43,10 @@ import dev.mrbean.aibrowser.service.ServiceController
 
 /**
  * The Home tab: a live 16:9 preview strip of the desktop on top (the whole
- * 1280x720 desktop scaled down, with a health chip and a Fullscreen button),
- * the viewer controls (View only, Reload, Fullscreen) directly under it, then
- * the service overview below. Fullscreen shows the viewer alone filling the
+ * 1280x720 desktop scaled down, with a health chip over it), the viewer
+ * controls (View only, Reload, Fullscreen) directly under it, then the service
+ * overview below. In landscape the strip takes the left half and the service
+ * overview scrolls beside it. Fullscreen shows the viewer alone filling the
  * screen with an Exit button; the Back gesture also exits it.
  */
 @Composable
@@ -83,31 +87,67 @@ fun HomeScreen(
         return
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
-        PreviewStrip(
-            running = running,
-            novncRunning = novncRunning,
-            onStartNovnc = onStartNovnc,
-            viewOnly = viewOnly,
-            onViewOnlyChange = onViewOnlyChange,
-            onReload = { webView?.reload() },
-            onFullscreen = { onFullscreenChange(true) },
-            onReady = { webView = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
-        )
-        DashboardContent(
-            onGoToRepair = onGoToRepair,
-            viewModel = viewModel,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-        )
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    if (isLandscape) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+        ) {
+            PreviewStrip(
+                running = running,
+                novncRunning = novncRunning,
+                onStartNovnc = onStartNovnc,
+                viewOnly = viewOnly,
+                onViewOnlyChange = onViewOnlyChange,
+                onReload = { webView?.reload() },
+                onFullscreen = { onFullscreenChange(true) },
+                onReady = { webView = it },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+            Spacer(Modifier.width(16.dp))
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                DashboardContent(
+                    onGoToRepair = onGoToRepair,
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    } else {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            PreviewStrip(
+                running = running,
+                novncRunning = novncRunning,
+                onStartNovnc = onStartNovnc,
+                viewOnly = viewOnly,
+                onViewOnlyChange = onViewOnlyChange,
+                onReload = { webView?.reload() },
+                onFullscreen = { onFullscreenChange(true) },
+                onReady = { webView = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+            )
+            DashboardContent(
+                onGoToRepair = onGoToRepair,
+                viewModel = viewModel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            )
+        }
     }
 }
 
@@ -165,8 +205,6 @@ private fun PreviewStrip(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     HealthChip(running)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onFullscreen) { Text("Fullscreen") }
                 }
             }
         }
