@@ -196,12 +196,29 @@ private fun AppNavHost(
                 onGoToRepair = {
                     navController.navigate(REPAIR_ROUTE) { launchSingleTop = true }
                 },
+                onRunUpdate = {
+                    navController.navigate(UPDATE_ROUTE) { launchSingleTop = true }
+                },
             )
         }
         composable(REPAIR_ROUTE) {
             RepairScreen(
                 onBack = { navController.popBackStack() },
                 onRunOnboardingAgain = { onSetupCompleteChanged(false) },
+                onRunUpdate = {
+                    navController.navigate(UPDATE_ROUTE) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(UPDATE_ROUTE) {
+            OnboardingScreen(
+                mode = OnboardingMode.Update,
+                // The shell already pads the system bars for this route.
+                applySystemBarsPadding = false,
+                onFinished = {
+                    navController.popBackStack(Destination.Home.route, inclusive = false)
+                },
+                onBack = { navController.popBackStack() },
             )
         }
     }
@@ -219,3 +236,4 @@ private fun NavHostController.navigateToTab(route: String) {
 }
 
 private const val REPAIR_ROUTE = "repair"
+private const val UPDATE_ROUTE = "update"

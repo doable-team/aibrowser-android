@@ -9,10 +9,14 @@ import dev.mrbean.aibrowser.engine.Paths
 import dev.mrbean.aibrowser.engine.PhantomProcessGuard
 import dev.mrbean.aibrowser.engine.ProcessRunner
 import dev.mrbean.aibrowser.engine.RootfsInstaller
+import dev.mrbean.aibrowser.engine.RootfsUpdates
 import dev.mrbean.aibrowser.engine.ServiceSupervisor
+import dev.mrbean.aibrowser.ui.DEFAULT_MANIFEST_URL
+import dev.mrbean.aibrowser.ui.servicesActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Owns the [AppGraph]. The service supervisor outlives any single screen or the
@@ -33,15 +37,30 @@ class AiBrowserApp : Application() {
         val config = ConfigStore(paths.data)
         val downloader = Downloader()
         val supervisorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        AppGraph(
+        val supervisor = ServiceSupervisor(paths, runner, supervisorScope)
+        val graph = AppGraph(
             paths = paths,
             runner = runner,
             config = config,
             supervisorScope = supervisorScope,
-            supervisor = ServiceSupervisor(paths, runner, supervisorScope),
-            installer = RootfsInstaller(paths, runner, downloader, config),
+            supervisor = supervisor,
+            installer = RootfsInstaller(
+                paths, runner, downloader, config,
+                // The userland must not be wiped out from under the services.
+                servicesRunning = { servicesActive(supervisor) },
+            ),
             downloader = downloader,
+            updates = RootfsUpdates(paths, downloader, config),
         )
+        // Give the operator an update answer soon after start; a failed check
+        // is retried from the Settings screen.
+        supervisorScope.launch {
+            runCatching {
+                val cfg = graph.config.load()
+                graph.updates.check(cfg.mirrorUrl.ifBlank { DEFAULT_MANIFEST_URL })
+            }
+        }
+        graph
     }
 
     companion object {

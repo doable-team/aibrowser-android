@@ -51,6 +51,7 @@ import dev.mrbean.aibrowser.engine.ConfigStore
 import dev.mrbean.aibrowser.engine.InstallState
 import dev.mrbean.aibrowser.engine.Paths
 import dev.mrbean.aibrowser.engine.PhantomProcessGuard
+import dev.mrbean.aibrowser.engine.UpdateStatus
 import dev.mrbean.aibrowser.engine.oemGuidance
 import java.util.Locale
 
@@ -123,6 +124,9 @@ fun RootfsCard(
     onInstall: () -> Unit,
     onCancelInstall: () -> Unit,
     onUninstall: () -> Unit,
+    updateStatus: UpdateStatus? = null,
+    onCheckUpdates: (() -> Unit)? = null,
+    onRunUpdate: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     AppCard(modifier = modifier) {
@@ -160,29 +164,46 @@ fun RootfsCard(
                     OutlinedButton(onClick = onUninstall, enabled = !rootfsBusy) { Text("Uninstall") }
                 }
             }
-            if (isRunning(installState)) {
-                Spacer(Modifier.height(16.dp))
-                val progress = progressOf(installState)
-                if (progress != null) {
-                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-            }
-            val status = installStatusText(installState)
-            if (status.isNotEmpty()) {
-                Text(
-                    status,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
+            if (updateStatus != null) {
+                RootfsUpdateSection(
+                    updateStatus = updateStatus,
+                    busy = rootfsBusy,
+                    onCheck = onCheckUpdates ?: {},
+                    onUpdate = onRunUpdate ?: {},
+                    modifier = Modifier.padding(top = 12.dp),
                 )
             }
+            RootfsProgress(installState)
             if (installState is InstallState.Failed) {
                 Row(Modifier.padding(top = 8.dp)) {
                     Button(onClick = onInstall, enabled = !rootfsBusy) { Text("Retry") }
                 }
             }
         }
+    }
+}
+
+/** The install progress card: the linear bar plus the status text (download with
+ *  megabytes and speed, verifying, extracting with the percentage, file count
+ *  and timing). Shared by the install/reinstall card and the update flow. */
+@Composable
+internal fun RootfsProgress(installState: InstallState) {
+    if (isRunning(installState)) {
+        Spacer(Modifier.height(16.dp))
+        val progress = progressOf(installState)
+        if (progress != null) {
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+    }
+    val status = installStatusText(installState)
+    if (status.isNotEmpty()) {
+        Text(
+            status,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 
@@ -455,7 +476,7 @@ private fun isBatteryIgnored(context: Context): Boolean {
     return power.isIgnoringBatteryOptimizations(context.packageName)
 }
 
-private fun isRunning(state: InstallState): Boolean = when (state) {
+internal fun isRunning(state: InstallState): Boolean = when (state) {
     is InstallState.FetchingManifest,
     is InstallState.Downloading,
     is InstallState.Verifying,
@@ -469,14 +490,16 @@ private fun isRunning(state: InstallState): Boolean = when (state) {
     -> false
 }
 
-private fun progressOf(state: InstallState): Float? = when (state) {
+internal fun progressOf(state: InstallState): Float? = when (state) {
     is InstallState.Downloading -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
     is InstallState.Verifying -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 1f) else null
     is InstallState.Extracting -> if (state.total > 0) (state.done.toFloat() / state.total).coerceIn(0f, 0.99f) else null
     else -> null
 }
 
-private fun installStatusText(state: InstallState): String = when (state) {
+private const val FINAL_TOUCHES = "Doing final touches..."
+
+internal fun installStatusText(state: InstallState): String = when (state) {
     is InstallState.Idle -> "Not installed"
     is InstallState.FetchingManifest -> "Fetching manifest"
     is InstallState.Downloading -> buildString {
@@ -497,15 +520,13 @@ private fun installStatusText(state: InstallState): String = when (state) {
             val percent = if (finishing) 99 else state.done * 100 / state.total
             val timing = buildString {
                 append("${formatElapsed(state.elapsedSec.toLong())} elapsed")
-                if (finishing) {
-                    append(", finishing up")
-                } else if (state.elapsedSec >= 10 && state.done > 0) {
+                if (!finishing && state.elapsedSec >= 10 && state.done > 0) {
                     val estimate = state.elapsedSec * (state.total - state.done) / state.done
                     append(", about ${formatRemaining(estimate)} left")
                 }
             }
             listOf(
-                if (finishing) "Extracting: finishing up" else "Extracting $percent%",
+                if (finishing) FINAL_TOUCHES else "Extracting $percent%",
                 "${formatCount(state.done)} of ${formatCount(state.total)} files",
                 timing,
             ).joinToString("\n")
@@ -516,7 +537,7 @@ private fun installStatusText(state: InstallState): String = when (state) {
                 state.lastPath,
             ).filter { it.isNotEmpty() }.joinToString("\n")
         }
-    is InstallState.WritingFiles -> "Writing files"
+    is InstallState.WritingFiles -> FINAL_TOUCHES
     is InstallState.Installed -> "Installed ${state.version}"
     is InstallState.Failed -> state.message
 }

@@ -12,11 +12,14 @@ import dev.mrbean.aibrowser.AiBrowserApp
 import dev.mrbean.aibrowser.AppGraph
 import dev.mrbean.aibrowser.engine.ApiToken
 import dev.mrbean.aibrowser.engine.ChromiumFlags
+import dev.mrbean.aibrowser.engine.InstallState
 import dev.mrbean.aibrowser.engine.SecretFile
 import dev.mrbean.aibrowser.engine.ServiceState
 import dev.mrbean.aibrowser.engine.TokenStore
+import dev.mrbean.aibrowser.engine.UpdateStatus
 import dev.mrbean.aibrowser.service.ServiceController
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +41,7 @@ data class SettingsUiState(
     val startOnBoot: Boolean = false,
     val rootfsVersion: String = "",
     val manifestUrl: String = "",
+    val rootfsBusy: Boolean = false,
 )
 
 class SettingsViewModel(graph: AppGraph, application: Application) : AndroidViewModel(application) {
@@ -46,6 +50,7 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
     private val config = graph.config
     private val installer = graph.installer
     private val supervisor = graph.supervisor
+    private val updates = graph.updates
     private val tokenStore = TokenStore(paths.data)
     private val tunnelFile = SecretFile(File(paths.data, "tunnel.token"))
     private val mcpHostFile = SecretFile(File(paths.data, "mcp.host"))
@@ -55,6 +60,14 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
 
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
+
+    val updateStatus: StateFlow<UpdateStatus> = updates.status
+
+    private val _installState = MutableStateFlow<InstallState>(installer.state.value)
+    val installState: StateFlow<InstallState> = _installState.asStateFlow()
+
+    /** The job driving the current rootfs update or uninstall; null when idle. */
+    private var updateJob: Job? = null
 
     /** Incremented after every successful write; the screen shows a snackbar. */
     private val _savedCount = MutableStateFlow(0)
@@ -69,6 +82,9 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
     val pendingToken: StateFlow<ApiToken?> = _pendingToken.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            installer.state.collect { _installState.value = it }
+        }
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) {
                 val cfg = config.load()
@@ -222,10 +238,38 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
 
     // Rootfs
 
-    fun uninstallRootfs() {
+    private fun manifestUrl(): String = _state.value.manifestUrl.ifBlank { DEFAULT_MANIFEST_URL }
+
+    fun checkUpdates() {
         viewModelScope.launch {
-            ServiceController.start(getApplication(), ServiceController.ACTION_STOP_ALL)
-            withContext(Dispatchers.IO) { installer.uninstall() }
+            updates.check(manifestUrl())
+        }
+    }
+
+    fun uninstallRootfs() {
+        if (updateJob?.isActive == true) return
+        _state.update { it.copy(rootfsBusy = true) }
+        updateJob = viewModelScope.launch {
+            try {
+                val result = if (stopAllAndWait(getApplication(), supervisor)) {
+                    installer.uninstall()
+                    installer.state.value
+                } else {
+                    InstallState.Failed("timed out stopping the services after 30 seconds")
+                }
+                _installState.value = result
+                refreshInstalledVersion()
+            } finally {
+                updateJob = null
+                _state.update { it.copy(rootfsBusy = false) }
+            }
+        }
+    }
+
+    private fun refreshInstalledVersion() {
+        viewModelScope.launch {
+            val version = withContext(Dispatchers.IO) { config.load().rootfsVersion }
+            _state.update { it.copy(rootfsVersion = version) }
         }
     }
 

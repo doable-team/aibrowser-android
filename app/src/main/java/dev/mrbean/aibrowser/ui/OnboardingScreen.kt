@@ -74,6 +74,12 @@ import java.io.File
 
 const val ONBOARDING_STEP_COUNT = 6
 
+/** What the onboarding flow is running: the six-step first run, or the single-screen update. */
+enum class OnboardingMode {
+    FirstRun,
+    Update,
+}
+
 /** A hostname is valid when it has no scheme, no slash and no spaces; empty is invalid. */
 fun isValidHostname(host: String): Boolean {
     if (host.isEmpty()) return false
@@ -125,13 +131,18 @@ fun nextEnabled(step: Int, state: OnboardingUiState): Boolean = when (step) {
     else -> false
 }
 
-class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidViewModel(application) {
+class OnboardingViewModel(
+    graph: AppGraph,
+    application: Application,
+    private val mode: OnboardingMode = OnboardingMode.FirstRun,
+) : AndroidViewModel(application) {
 
     private val paths = graph.paths
     private val selfTest = SelfTest(paths, graph.runner)
     private val installer = graph.installer
     private val config = graph.config
     private val supervisor = graph.supervisor
+    private val updates = graph.updates
     private val tokenStore = TokenStore(paths.data)
     private val tunnelFile = SecretFile(File(paths.data, "tunnel.token"))
     private val mcpHostFile = SecretFile(File(paths.data, "mcp.host"))
@@ -144,12 +155,15 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
     val finished: StateFlow<Boolean> = _finished.asStateFlow()
 
     private var installJob: Job? = null
+    /** True once the Update mode has started its update, so rotation does not re-run it. */
+    private var updateStarted = false
 
     init {
         val loaded = config.load()
         _state.value = OnboardingUiState(
             manifestUrl = loaded.mirrorUrl.ifBlank { DEFAULT_MANIFEST_URL },
             installState = installer.state.value,
+            rootfsBusy = mode == OnboardingMode.Update,
             tunnelToken = tunnelFile.readOrEmpty(),
             tokens = tokenStore.list(),
             mcpHost = loaded.mcpHost,
@@ -161,8 +175,11 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
                 _state.update { it.copy(installState = installState) }
             }
         }
-        // The welcome step runs Prepare and the self-test automatically on entry.
-        prepareAndSelfTest()
+        // The welcome step runs Prepare and the self-test automatically on entry;
+        // the Update mode starts through the shared update action instead.
+        if (mode == OnboardingMode.FirstRun) {
+            prepareAndSelfTest()
+        }
     }
 
     // Step 1: native binaries and self-test.
@@ -227,6 +244,34 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
 
     fun cancelInstall() {
         installJob?.cancel()
+    }
+
+    /** The Update mode's auto-start: begins the update exactly once on entry. */
+    fun update() {
+        if (updateStarted || installJob?.isActive == true) return
+        startUpdate()
+    }
+
+    /** The Update mode's Retry: runs the update again after a failure. */
+    fun retry() {
+        if (installJob?.isActive == true) return
+        startUpdate()
+    }
+
+    private fun startUpdate() {
+        updateStarted = true
+        _state.update { it.copy(rootfsBusy = true) }
+        installJob = viewModelScope.launch {
+            try {
+                // The shared update action: stops the services first, installs the
+                // userland, and starts everything again only on success.
+                val result = updateRootfs(getApplication(), supervisor, installer, updates, _state.value.manifestUrl)
+                _state.update { it.copy(installState = result) }
+            } finally {
+                installJob = null
+                _state.update { it.copy(rootfsBusy = false) }
+            }
+        }
     }
 
     fun uninstall() {
@@ -340,7 +385,13 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
         val Factory = viewModelFactory {
             initializer {
                 val app = this[APPLICATION_KEY] as AiBrowserApp
-                OnboardingViewModel(app.graph, app)
+                OnboardingViewModel(app.graph, app, OnboardingMode.FirstRun)
+            }
+        }
+        val UpdateFactory = viewModelFactory {
+            initializer {
+                val app = this[APPLICATION_KEY] as AiBrowserApp
+                OnboardingViewModel(app.graph, app, OnboardingMode.Update)
             }
         }
     }
@@ -349,14 +400,20 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OnboardingScreen(
+    mode: OnboardingMode = OnboardingMode.FirstRun,
     onFinished: () -> Unit,
-    viewModel: OnboardingViewModel = viewModel(factory = OnboardingViewModel.Factory),
+    onBack: () -> Unit = {},
+    applySystemBarsPadding: Boolean = true,
+    viewModel: OnboardingViewModel = viewModel(
+        factory = if (mode == OnboardingMode.Update) {
+            OnboardingViewModel.UpdateFactory
+        } else {
+            OnboardingViewModel.Factory
+        },
+    ),
 ) {
     val state by viewModel.state.collectAsState()
     val finished by viewModel.finished.collectAsState()
-    val pagerState = rememberPagerState(pageCount = { ONBOARDING_STEP_COUNT })
-    val copy = rememberClipboardCopy()
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(finished) {
         if (finished) onFinished()
@@ -365,65 +422,208 @@ fun OnboardingScreen(
     Surface(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding(),
+            .then(
+                if (applySystemBarsPadding) {
+                    Modifier.statusBarsPadding().navigationBarsPadding()
+                } else {
+                    Modifier
+                },
+            ),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(Modifier.fillMaxSize()) {
-            Text(
-                "Step ${pagerState.currentPage + 1} of $ONBOARDING_STEP_COUNT",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
-            )
-            LinearProgressIndicator(
-                progress = { (pagerState.currentPage + 1) / ONBOARDING_STEP_COUNT.toFloat() },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            HorizontalPager(
-                state = pagerState,
-                userScrollEnabled = false,
-                modifier = Modifier.weight(1f),
-            ) { page ->
-                when (page) {
-                    0 -> WelcomeStep(state, viewModel)
-                    1 -> RootfsStep(state, viewModel)
-                    2 -> AndroidChecksStep()
-                    3 -> TunnelStep(state, viewModel)
-                    4 -> ApiTokenStep(state, viewModel, copy)
-                    5 -> HostnamesStep(state, viewModel, copy)
-                }
+        if (mode == OnboardingMode.Update) {
+            UpdateFlow(state, viewModel, onFinished, onBack)
+        } else {
+            FirstRunFlow(state, viewModel)
+        }
+    }
+}
+
+/** The six-step first-run flow, unchanged from the setup wizard. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FirstRunFlow(state: OnboardingUiState, viewModel: OnboardingViewModel) {
+    val pagerState = rememberPagerState(pageCount = { ONBOARDING_STEP_COUNT })
+    val copy = rememberClipboardCopy()
+    val scope = rememberCoroutineScope()
+
+    Column(Modifier.fillMaxSize()) {
+        Text(
+            "Step ${pagerState.currentPage + 1} of $ONBOARDING_STEP_COUNT",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+        )
+        LinearProgressIndicator(
+            progress = { (pagerState.currentPage + 1) / ONBOARDING_STEP_COUNT.toFloat() },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        HorizontalPager(
+            state = pagerState,
+            userScrollEnabled = false,
+            modifier = Modifier.weight(1f),
+        ) { page ->
+            when (page) {
+                0 -> WelcomeStep(state, viewModel)
+                1 -> RootfsStep(state, viewModel)
+                2 -> AndroidChecksStep()
+                3 -> TunnelStep(state, viewModel)
+                4 -> ApiTokenStep(state, viewModel, copy)
+                5 -> HostnamesStep(state, viewModel, copy)
             }
-            val lastPage = pagerState.currentPage == ONBOARDING_STEP_COUNT - 1
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
+        }
+        val lastPage = pagerState.currentPage == ONBOARDING_STEP_COUNT - 1
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                    }
+                },
+                enabled = pagerState.currentPage > 0,
+            ) { Text("Back") }
+            Spacer(Modifier.weight(1f))
+            if (lastPage) {
+                Button(
+                    onClick = viewModel::finish,
+                    enabled = nextEnabled(pagerState.currentPage, state),
+                ) { Text("Finish") }
+            } else {
+                Button(
                     onClick = {
                         scope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
                         }
                     },
-                    enabled = pagerState.currentPage > 0,
-                ) { Text("Back") }
-                Spacer(Modifier.weight(1f))
-                if (lastPage) {
-                    Button(
-                        onClick = viewModel::finish,
-                        enabled = nextEnabled(pagerState.currentPage, state),
-                    ) { Text("Finish") }
-                } else {
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
-                            }
-                        },
-                        enabled = nextEnabled(pagerState.currentPage, state),
-                    ) { Text("Next") }
+                    enabled = nextEnabled(pagerState.currentPage, state),
+                ) { Text("Next") }
+            }
+        }
+    }
+}
+
+/**
+ * The Update mode: one screen, the userland step, that starts the update on
+ * entry through the shared update action (the services stop first, the install
+ * runs, and the services start again on success). Nothing else from the
+ * first-run flow appears and nothing already configured is touched.
+ */
+@Composable
+private fun UpdateFlow(
+    state: OnboardingUiState,
+    viewModel: OnboardingViewModel,
+    onFinished: () -> Unit,
+    onBack: () -> Unit,
+) {
+    LaunchedEffect(Unit) { viewModel.update() }
+    Column(Modifier.fillMaxSize()) {
+        StepScaffold(
+            title = "Updating the userland",
+            paragraph = "The services stop first, the new userland is downloaded, verified " +
+                "and extracted, then the services start again.",
+        ) {
+            UpdateRootfsCard(
+                manifestUrl = state.manifestUrl,
+                installState = state.installState,
+                rootfsBusy = state.rootfsBusy,
+                onManifestUrlChange = viewModel::onManifestUrlChange,
+                onResetManifestUrl = viewModel::resetManifestUrl,
+                onRetry = viewModel::retry,
+                onDone = onFinished,
+                onBack = onBack,
+            )
+        }
+    }
+}
+
+/**
+ * The update-mode rootfs card: the editable manifest URL, the same progress
+ * card as the install step, then either "Updated to <version>" with a single
+ * Done button, or the failure message with Retry next to Back.
+ */
+@Composable
+private fun UpdateRootfsCard(
+    manifestUrl: String,
+    installState: InstallState,
+    rootfsBusy: Boolean,
+    onManifestUrlChange: (String) -> Unit,
+    onResetManifestUrl: () -> Unit,
+    onRetry: () -> Unit,
+    onDone: () -> Unit,
+    onBack: () -> Unit,
+) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            OutlinedTextField(
+                value = manifestUrl,
+                onValueChange = onManifestUrlChange,
+                label = { Text("Manifest URL") },
+                enabled = !rootfsBusy,
+                singleLine = true,
+                trailingIcon = {
+                    if (manifestUrl != DEFAULT_MANIFEST_URL) {
+                        TextButton(onClick = onResetManifestUrl, enabled = !rootfsBusy) { Text("Default") }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            when {
+                isRunning(installState) -> RootfsProgress(installState)
+
+                rootfsBusy -> {
+                    // The services are stopping before the download starts.
+                    Spacer(Modifier.height(16.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(
+                        "Stopping the services…",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+
+                installState is InstallState.Installed -> {
+                    Row(
+                        Modifier.padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = "Updated",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Updated to ${installState.version}", style = MaterialTheme.typography.titleMedium)
+                    }
+                    Row(Modifier.padding(top = 12.dp)) {
+                        Button(onClick = onDone) { Text("Done") }
+                    }
+                }
+
+                installState is InstallState.Failed -> {
+                    Row(
+                        Modifier.padding(top = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.Error,
+                            contentDescription = "Error",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(installState.message, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Row(Modifier.padding(top = 12.dp)) {
+                        Button(onClick = onRetry, enabled = !rootfsBusy) { Text("Retry") }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = onBack) { Text("Back") }
+                    }
                 }
             }
         }

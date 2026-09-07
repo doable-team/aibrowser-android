@@ -5,6 +5,7 @@ import dev.mrbean.aibrowser.engine.Downloader
 import dev.mrbean.aibrowser.engine.Paths
 import dev.mrbean.aibrowser.engine.ProcessRunner
 import dev.mrbean.aibrowser.engine.RootfsInstaller
+import dev.mrbean.aibrowser.engine.RootfsUpdates
 import dev.mrbean.aibrowser.engine.ServiceSupervisor
 import kotlinx.coroutines.CoroutineScope
 
@@ -20,4 +21,5 @@ class AppGraph(
     val supervisor: ServiceSupervisor,
     val installer: RootfsInstaller,
     val downloader: Downloader,
+    val updates: RootfsUpdates,
 )

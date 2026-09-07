@@ -12,6 +12,7 @@ import dev.mrbean.aibrowser.engine.ConfigStore
 import dev.mrbean.aibrowser.engine.InstallState
 import dev.mrbean.aibrowser.engine.NativeBinaries
 import dev.mrbean.aibrowser.engine.SelfTest
+import dev.mrbean.aibrowser.engine.UpdateStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,9 +36,13 @@ class SetupViewModel(graph: AppGraph, application: Application) : AndroidViewMod
     private val paths = graph.paths
     private val selfTest = SelfTest(paths, graph.runner)
     private val installer = graph.installer
+    private val supervisor = graph.supervisor
+    private val updates = graph.updates
 
     private val _state = MutableStateFlow(SetupUiState())
     val state: StateFlow<SetupUiState> = _state.asStateFlow()
+
+    val updateStatus: StateFlow<UpdateStatus> = updates.status
 
     private var installJob: Job? = null
 
@@ -116,11 +121,21 @@ class SetupViewModel(graph: AppGraph, application: Application) : AndroidViewMod
         _state.update { it.copy(rootfsBusy = true) }
         installJob = viewModelScope.launch {
             try {
-                installer.install(_state.value.manifestUrl)
+                // Reinstalling while the services run out of the userland would
+                // wipe it from under them, so the shared action stops and waits
+                // first and only restarts everything after a successful install.
+                val result = updateRootfs(getApplication(), supervisor, installer, updates, _state.value.manifestUrl)
+                _state.update { it.copy(installState = result) }
             } finally {
                 installJob = null
                 _state.update { it.copy(rootfsBusy = false) }
             }
+        }
+    }
+
+    fun checkUpdates() {
+        viewModelScope.launch {
+            updates.check(_state.value.manifestUrl)
         }
     }
 
@@ -133,7 +148,13 @@ class SetupViewModel(graph: AppGraph, application: Application) : AndroidViewMod
         _state.update { it.copy(rootfsBusy = true) }
         installJob = viewModelScope.launch {
             try {
-                installer.uninstall()
+                val result = if (stopAllAndWait(getApplication(), supervisor)) {
+                    installer.uninstall()
+                    installer.state.value
+                } else {
+                    InstallState.Failed("timed out stopping the services after 30 seconds")
+                }
+                _state.update { it.copy(installState = result) }
             } finally {
                 installJob = null
                 _state.update { it.copy(rootfsBusy = false) }

@@ -40,7 +40,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.mrbean.aibrowser.engine.ApiToken
+import dev.mrbean.aibrowser.engine.UpdateStatus
 import kotlinx.coroutines.launch
+import java.util.Locale
+import kotlin.math.roundToInt
 
 /** A clipboard-copy lambda backed by the current context's clipboard manager. */
 @Composable
@@ -176,6 +179,49 @@ fun ApiTokenList(
         }
         SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
     }
+}
+
+/**
+ * The rootfs update line with its Check now / Update buttons, shared by the
+ * Settings rootfs card and the Repair page's rootfs card.
+ */
+@Composable
+fun RootfsUpdateSection(
+    updateStatus: UpdateStatus,
+    busy: Boolean,
+    onCheck: () -> Unit,
+    onUpdate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        Text(
+            updateStatusLine(updateStatus),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(Modifier.padding(top = 8.dp)) {
+            OutlinedButton(onClick = onCheck, enabled = !busy) { Text("Check now") }
+            if (updateStatus is UpdateStatus.Available) {
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = onUpdate, enabled = !busy) { Text("Update") }
+            }
+        }
+    }
+}
+
+private fun updateStatusLine(status: UpdateStatus): String = when (status) {
+    UpdateStatus.Unknown -> "Checking for updates"
+    is UpdateStatus.UpToDate -> "Up to date (${status.version})"
+    is UpdateStatus.Available ->
+        "Update available: ${status.version}, ${formatUpdateSize(status.sizeBytes)}"
+    is UpdateStatus.Failed -> status.message
+}
+
+private fun formatUpdateSize(sizeBytes: Long): String {
+    val gb = sizeBytes / 1_000_000_000.0
+    if (gb >= 1) return String.format(Locale.US, "%.1f GB", gb)
+    val mb = sizeBytes / 1_000_000.0
+    if (mb >= 1) return "${mb.roundToInt()} MB"
+    return "${sizeBytes / 1_000} KB"
 }
 
 /**

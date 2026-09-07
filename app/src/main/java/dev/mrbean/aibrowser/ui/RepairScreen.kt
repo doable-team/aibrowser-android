@@ -36,9 +36,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun RepairScreen(
     onBack: () -> Unit,
     onRunOnboardingAgain: () -> Unit,
+    onRunUpdate: () -> Unit,
     viewModel: SetupViewModel = viewModel(factory = SetupViewModel.Factory),
 ) {
     val state by viewModel.state.collectAsState()
+    val updateStatus by viewModel.updateStatus.collectAsState()
     // The TopAppBar applies the status-bar inset itself; a Scaffold keeps the
     // navigation-bar padding, so the inset is applied once, not twice.
     Scaffold(
@@ -79,6 +81,9 @@ fun RepairScreen(
                     onInstall = viewModel::install,
                     onCancelInstall = viewModel::cancelInstall,
                     onUninstall = viewModel::uninstall,
+                    updateStatus = updateStatus,
+                    onCheckUpdates = viewModel::checkUpdates,
+                    onRunUpdate = onRunUpdate,
                 )
                 Spacer(Modifier.height(12.dp))
                 AndroidChecksCard()

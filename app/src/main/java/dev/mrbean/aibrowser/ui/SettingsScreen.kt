@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -34,22 +35,29 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mrbean.aibrowser.engine.ApiToken
+import dev.mrbean.aibrowser.engine.InstallState
+import dev.mrbean.aibrowser.engine.UpdateStatus
 
 @Composable
 fun SettingsScreen(
     onGoToRepair: () -> Unit,
+    onRunUpdate: () -> Unit,
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory),
 ) {
     val state by viewModel.state.collectAsState()
     val savedCount by viewModel.savedCount.collectAsState()
     val savedMessage by viewModel.savedMessage.collectAsState()
     val pendingToken by viewModel.pendingToken.collectAsState()
+    val installState by viewModel.installState.collectAsState()
+    val updateStatus by viewModel.updateStatus.collectAsState()
     val copy = rememberClipboardCopy()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(savedCount) {
         if (savedCount > 0) snackbarHostState.showSnackbar(savedMessage)
     }
+    // Refresh the update answer every time the Settings screen is entered.
+    LaunchedEffect(Unit) { viewModel.checkUpdates() }
 
     var tokenToRemove by remember { mutableStateOf<ApiToken?>(null) }
     var confirmUninstall by remember { mutableStateOf(false) }
@@ -73,7 +81,16 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             ChromiumCard(state, viewModel)
             Spacer(Modifier.height(12.dp))
-            SettingsRootfsCard(state, onGoToRepair, onUninstall = { confirmUninstall = true })
+            SettingsRootfsCard(
+                state = state,
+                installState = installState,
+                updateStatus = updateStatus,
+                rootfsBusy = state.rootfsBusy,
+                onGoToRepair = onGoToRepair,
+                onUninstall = { confirmUninstall = true },
+                onCheckUpdates = viewModel::checkUpdates,
+                onRunUpdate = onRunUpdate,
+            )
             Spacer(Modifier.height(12.dp))
             AboutCard(state, viewModel)
         }
@@ -348,8 +365,13 @@ private fun ChromiumCard(state: SettingsUiState, viewModel: SettingsViewModel) {
 @Composable
 private fun SettingsRootfsCard(
     state: SettingsUiState,
+    installState: InstallState,
+    updateStatus: UpdateStatus,
+    rootfsBusy: Boolean,
     onGoToRepair: () -> Unit,
     onUninstall: () -> Unit,
+    onCheckUpdates: () -> Unit,
+    onRunUpdate: () -> Unit,
 ) {
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
@@ -363,10 +385,34 @@ private fun SettingsRootfsCard(
                 "Manifest: ${state.manifestUrl.ifBlank { DEFAULT_MANIFEST_URL }}",
                 style = MaterialTheme.typography.bodySmall,
             )
+            RootfsUpdateSection(
+                updateStatus = updateStatus,
+                busy = rootfsBusy,
+                onCheck = onCheckUpdates,
+                onUpdate = onRunUpdate,
+                modifier = Modifier.padding(top = 12.dp),
+            )
             Row(Modifier.padding(top = 12.dp)) {
-                Button(onClick = onGoToRepair) { Text("Reinstall") }
+                Button(onClick = onGoToRepair, enabled = !rootfsBusy) { Text("Reinstall") }
                 Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = onUninstall) { Text("Uninstall") }
+                OutlinedButton(onClick = onUninstall, enabled = !rootfsBusy) { Text("Uninstall") }
+            }
+            if (isRunning(installState)) {
+                Spacer(Modifier.height(16.dp))
+                val progress = progressOf(installState)
+                if (progress != null) {
+                    LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+            }
+            val status = installStatusText(installState)
+            if (status.isNotEmpty() && (isRunning(installState) || installState is InstallState.Failed)) {
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
             }
         }
     }
