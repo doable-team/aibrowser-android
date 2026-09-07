@@ -45,7 +45,8 @@ off to click and type in it yourself.
 ## Install (personal use)
 
 Sideload the APK from the [latest release](https://github.com/mrbeandev/aibrowser-android/releases),
-or build one yourself (below), then open the app.
+or build one yourself (below), then open the app. **[SETUP.md](SETUP.md) walks
+through the six setup steps with a screenshot of each.**
 
 - Setup: "Prepare" runs the proot self-test; "Install" downloads the rootfs
   (about 300 MB from this repository's `rootfs` release, then a few minutes
