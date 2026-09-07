@@ -106,6 +106,9 @@ class ServiceSupervisor(
         // directory listing at the bare viewer hostname; backfill it so the
         // viewer service keeps redirecting to the desktop.
         NoVncIndex.ensure(paths.rootfs)
+        // Keep the netguard filtering proxy in an already-installed rootfs
+        // current so Chromium stays behind the private-address guard.
+        NetGuard.ensure(paths.rootfs)
     }
 
     /** Starts one service; `tunnel` without a token becomes [ServiceState.Disabled]. */

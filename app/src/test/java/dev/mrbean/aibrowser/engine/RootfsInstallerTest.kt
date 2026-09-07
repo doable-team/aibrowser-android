@@ -131,10 +131,7 @@ class RootfsInstallerTest {
         assertEquals("127.0.0.1 localhost\n::1 localhost\n", File(paths.rootfs, "etc/hosts").readText())
         assertTrue(File(paths.rootfs, "root/profile").isDirectory)
         assertTrue(File(paths.rootfs, "root/logs").isDirectory)
-        assertEquals(
-            "--disable-session-crashed-bubble\n--hide-crash-restore-bubble\n",
-            File(paths.data, "chromium.flags").readText(),
-        )
+        assertEquals(ChromiumFlags.DEFAULT_FLAGS, File(paths.data, "chromium.flags").readText())
 
         assertEquals("0.1.0", config.load().rootfsVersion)
         assertEquals(manifestUrl, config.load().mirrorUrl)

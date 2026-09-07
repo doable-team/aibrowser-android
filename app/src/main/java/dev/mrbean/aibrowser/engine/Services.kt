@@ -17,12 +17,13 @@ object Services {
     val all: List<ServiceDef> = listOf(
         ServiceDef("xvnc", 1, "VNC server, display :1"),
         ServiceDef("openbox", 2, "window manager"),
-        ServiceDef("chromium", 3, "headed browser, DevTools 9222"),
-        ServiceDef("novnc", 4, "viewer on 6080"),
-        ServiceDef("mcp", 5, "Playwright MCP on 18931"),
-        ServiceDef("gate", 6, "token gate on 8931 and 8932"),
-        ServiceDef("status", 7, "health JSON on 18932"),
-        ServiceDef("tunnel", 8, "Cloudflare tunnel"),
+        ServiceDef("netguard", 3, "network guard, blocks private addresses"),
+        ServiceDef("chromium", 4, "headed browser, DevTools 9222"),
+        ServiceDef("novnc", 5, "viewer on 6080"),
+        ServiceDef("mcp", 6, "Playwright MCP on 18931"),
+        ServiceDef("gate", 7, "token gate on 8931 and 8932"),
+        ServiceDef("status", 8, "health JSON on 18932"),
+        ServiceDef("tunnel", 9, "Cloudflare tunnel"),
     )
 
     fun scriptPath(name: String): String = "/opt/aibrowser/services/$name.sh"

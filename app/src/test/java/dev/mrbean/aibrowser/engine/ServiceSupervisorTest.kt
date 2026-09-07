@@ -291,7 +291,7 @@ class ServiceSupervisorTest {
 
         val flags = File(paths.data, "chromium.flags")
         assertTrue(flags.isFile)
-        assertEquals("--disable-session-crashed-bubble\n--hide-crash-restore-bubble\n", flags.readText())
+        assertEquals(ChromiumFlags.DEFAULT_FLAGS, flags.readText())
     }
 
     @Test
