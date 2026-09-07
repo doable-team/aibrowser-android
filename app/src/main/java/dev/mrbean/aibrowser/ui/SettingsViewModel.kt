@@ -12,7 +12,9 @@ import dev.mrbean.aibrowser.AiBrowserApp
 import dev.mrbean.aibrowser.AppGraph
 import dev.mrbean.aibrowser.engine.ApiToken
 import dev.mrbean.aibrowser.engine.ChromiumFlags
+import dev.mrbean.aibrowser.engine.ExtensionInstaller
 import dev.mrbean.aibrowser.engine.InstallState
+import dev.mrbean.aibrowser.engine.InstalledExtension
 import dev.mrbean.aibrowser.engine.SecretFile
 import dev.mrbean.aibrowser.engine.ServiceState
 import dev.mrbean.aibrowser.engine.TokenStore
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.InputStream
 
 data class SettingsUiState(
     val tunnelToken: String = "",
@@ -37,11 +40,12 @@ data class SettingsUiState(
     val statusHost: String = "",
     val viewerHost: String = "",
     val chromiumFlags: String = "",
-    val extensions: List<String> = emptyList(),
+    val extensions: List<InstalledExtension> = emptyList(),
     val startOnBoot: Boolean = false,
     val rootfsVersion: String = "",
     val manifestUrl: String = "",
     val rootfsBusy: Boolean = false,
+    val extensionBusy: Boolean = false,
 )
 
 class SettingsViewModel(graph: AppGraph, application: Application) : AndroidViewModel(application) {
@@ -55,6 +59,7 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
     private val tunnelFile = SecretFile(File(paths.data, "tunnel.token"))
     private val mcpHostFile = SecretFile(File(paths.data, "mcp.host"))
     private val chromiumFlagsFile = File(paths.data, "chromium.flags")
+    private val extensionInstaller = ExtensionInstaller(paths)
 
     val appVersionName: String = versionName(application)
 
@@ -96,7 +101,7 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
                     statusHost = cfg.statusHost,
                     viewerHost = cfg.viewerHost,
                     chromiumFlags = chromiumFlagsFile.readText().trim(),
-                    extensions = listExtensions(),
+                    extensions = extensionInstaller.list(),
                     startOnBoot = cfg.startOnBoot,
                     rootfsVersion = cfg.rootfsVersion,
                     manifestUrl = cfg.mirrorUrl,
@@ -236,6 +241,60 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
         ServiceController.start(getApplication(), ServiceController.ACTION_RESTART, "chromium")
     }
 
+    // Extensions
+
+    fun installExtension(fileName: String, open: () -> InputStream?) {
+        if (_state.value.extensionBusy) return
+        _state.update { it.copy(extensionBusy = true) }
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val input = open() ?: return@withContext null
+                    val done = input.use { extensionInstaller.install(fileName, it) }
+                    done to extensionInstaller.list()
+                }
+                if (result == null) {
+                    _savedMessage.value = "could not read the picked file"
+                } else {
+                    val (installed, extensions) = result
+                    _state.update { it.copy(extensions = extensions) }
+                    _savedMessage.value = "Installed ${installed.name} - restart chromium to load it"
+                }
+                _savedCount.update { it + 1 }
+            } catch (e: Exception) {
+                _savedMessage.value = e.message ?: "could not install the extension"
+                _savedCount.update { it + 1 }
+            } finally {
+                _state.update { it.copy(extensionBusy = false) }
+            }
+        }
+    }
+
+    fun removeExtension(directory: String) {
+        if (_state.value.extensionBusy) return
+        _state.update { it.copy(extensionBusy = true) }
+        viewModelScope.launch {
+            try {
+                val (removed, extensions) = withContext(Dispatchers.IO) {
+                    val gone = extensionInstaller.remove(directory)
+                    gone to extensionInstaller.list()
+                }
+                _state.update { it.copy(extensions = extensions) }
+                _savedMessage.value = if (removed) {
+                    "Removed $directory - restart chromium"
+                } else {
+                    "could not remove $directory"
+                }
+                _savedCount.update { it + 1 }
+            } catch (e: Exception) {
+                _savedMessage.value = e.message ?: "could not remove $directory"
+                _savedCount.update { it + 1 }
+            } finally {
+                _state.update { it.copy(extensionBusy = false) }
+            }
+        }
+    }
+
     // Rootfs
 
     private fun manifestUrl(): String = _state.value.manifestUrl.ifBlank { DEFAULT_MANIFEST_URL }
@@ -272,12 +331,6 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
             _state.update { it.copy(rootfsVersion = version) }
         }
     }
-
-    private fun listExtensions(): List<String> =
-        File(paths.data, "extensions").listFiles()
-            ?.filter { it.isDirectory }
-            ?.map { it.name }
-            ?: emptyList()
 
     private fun writeAtomic(file: File, content: String) {
         file.parentFile?.mkdirs()

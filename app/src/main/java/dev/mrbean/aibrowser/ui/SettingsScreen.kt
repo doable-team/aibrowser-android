@@ -1,5 +1,10 @@
 package dev.mrbean.aibrowser.ui
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -343,23 +349,65 @@ private fun ChromiumCard(state: SettingsUiState, viewModel: SettingsViewModel) {
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = viewModel::restartChromium) { Text("Restart chromium") }
             }
-            Text(
-                if (state.extensions.isEmpty()) {
-                    "No extensions installed."
-                } else {
-                    "Extensions: ${state.extensions.joinToString(", ")}"
-                },
-                style = MaterialTheme.typography.bodySmall,
+            Text("Extensions", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
+            if (state.extensions.isEmpty()) {
+                Text(
+                    "No extensions installed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            } else {
+                state.extensions.forEach { ext ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (ext.version.isEmpty()) ext.name else "${ext.name} ${ext.version}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = { viewModel.removeExtension(ext.directory) },
+                            enabled = !state.extensionBusy,
+                        ) { Text("Remove") }
+                    }
+                }
+            }
+            val context = LocalContext.current
+            val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) {
+                    val displayName = queryDisplayName(context, uri)
+                    viewModel.installExtension(displayName) { context.contentResolver.openInputStream(uri) }
+                }
+            }
+            Button(
+                onClick = { picker.launch(arrayOf("*/*")) },
+                enabled = !state.extensionBusy,
                 modifier = Modifier.padding(top = 8.dp),
-            )
+            ) { Text("Add extension") }
             Text(
-                "To add one, copy an unpacked extension folder into " +
-                    "data/extensions with a file manager or adb, then restart chromium.",
+                "Pick a packed extension (.zip or .crx). To get one from the Chrome " +
+                    "Web Store, paste the extension link into crx4chrome.com/crx-downloader/ " +
+                    "or crx-downloader.com and download the zip. Restart chromium after " +
+                    "adding or removing one.",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
     }
+}
+
+/** The document provider's display name for a picked file, with fallbacks. */
+private fun queryDisplayName(context: Context, uri: Uri): String {
+    val name = runCatching {
+        context.contentResolver
+            .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+    }.getOrNull()
+    return name ?: uri.lastPathSegment ?: "extension.zip"
 }
 
 @Composable
