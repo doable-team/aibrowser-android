@@ -16,6 +16,7 @@ data class AppConfig(
     val mirrorUrl: String = "",
     val viewOnly: Boolean = true,
     val rootfsVersion: String = "",
+    val oemBatteryDone: Boolean = false,
 )
 
 /** Reads and writes `data/config.json`; missing or corrupt files yield defaults. */

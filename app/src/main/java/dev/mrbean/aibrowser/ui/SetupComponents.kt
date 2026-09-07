@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -46,8 +47,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import dev.mrbean.aibrowser.engine.ConfigStore
 import dev.mrbean.aibrowser.engine.InstallState
+import dev.mrbean.aibrowser.engine.Paths
 import dev.mrbean.aibrowser.engine.PhantomProcessGuard
+import dev.mrbean.aibrowser.engine.oemGuidance
 import java.util.Locale
 
 /** The app's card: surface fill, 16 dp corners and a 1 dp outline, no shadow. */
@@ -182,12 +186,15 @@ fun RootfsCard(
     }
 }
 
-/** The three Android checks: notifications, battery, child process limit. */
+/** The Android checks: notifications, battery, the OEM battery mode and child process limit. */
 @Composable
 fun AndroidChecksCard() {
     val context = LocalContext.current
     var notificationGranted by remember { mutableStateOf(isNotificationGranted(context)) }
     var batteryIgnored by remember { mutableStateOf(isBatteryIgnored(context)) }
+    val oemStore = remember { ConfigStore(Paths.from(context).data) }
+    val oem = remember { oemGuidance(Build.MANUFACTURER, Build.BRAND) }
+    var oemBatteryDone by remember { mutableStateOf(oemStore.load().oemBatteryDone) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -262,6 +269,23 @@ fun AndroidChecksCard() {
                 buttonText = if (batteryIgnored) "App details" else "Request",
                 onButton = if (batteryIgnored) openAppDetails else requestBattery,
             )
+            if (oem != null) {
+                OemBatteryRow(
+                    name = oem.name,
+                    detail = buildString {
+                        append(oem.steps)
+                        if (oem.alsoAutostart) {
+                            append(" Without auto launch the services will not start after a reboot.")
+                        }
+                    },
+                    done = oemBatteryDone,
+                    onOpenAppInfo = openAppDetails,
+                    onToggle = { checked ->
+                        oemBatteryDone = checked
+                        runCatching { oemStore.save(oemStore.load().copy(oemBatteryDone = checked)) }
+                    },
+                )
+            }
             ChildProcessLimitRow(onCheckAgain = checkAgain)
         }
     }
@@ -297,6 +321,48 @@ private fun CheckRow(
             horizontalArrangement = Arrangement.End,
         ) {
             TextButton(onClick = onButton) { Text(buttonText) }
+        }
+    }
+}
+
+/**
+ * The OEM-specific battery mode row: only shown when the manufacturer ROM adds
+ * its own battery setting on top of the AOSP exemption, which no app can read,
+ * so the operator sets it by hand and confirms with the checkbox.
+ */
+@Composable
+private fun OemBatteryRow(
+    name: String,
+    detail: String,
+    done: Boolean,
+    onOpenAppInfo: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusIcon(done)
+            Spacer(Modifier.width(12.dp))
+            Text("Background activity ($name)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        }
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = done, onCheckedChange = onToggle)
+            Text("I have set this", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = onOpenAppInfo) { Text("Open app info") }
         }
     }
 }

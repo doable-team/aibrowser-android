@@ -23,6 +23,7 @@ class ConfigStoreTest {
             mirrorUrl = "https://mirror.example/rootfs.tar.xz",
             viewOnly = false,
             rootfsVersion = "0.1.0",
+            oemBatteryDone = true,
         )
 
         store.save(config)

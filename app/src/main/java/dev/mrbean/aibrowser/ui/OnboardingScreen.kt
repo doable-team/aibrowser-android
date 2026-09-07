@@ -621,7 +621,8 @@ private fun AndroidChecksStep() {
     StepScaffold(
         title = "Android checks",
         paragraph = "A few one-time Android settings keep the services alive in the background. " +
-            "The rows show the current state; you can come back later.",
+            "The rows show the current state; you can come back later. " +
+            "Manufacturer ROMs add their own battery mode; the last row explains what to set.",
     ) {
         AndroidChecksCard()
     }
