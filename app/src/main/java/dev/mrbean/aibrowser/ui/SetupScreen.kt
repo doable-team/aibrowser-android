@@ -111,6 +111,13 @@ private fun RootfsCard(state: SetupUiState, viewModel: SetupViewModel) {
                 label = { Text("Manifest URL") },
                 enabled = !state.rootfsBusy,
                 singleLine = true,
+                trailingIcon = {
+                    if (state.manifestUrl != DEFAULT_MANIFEST_URL) {
+                        TextButton(onClick = viewModel::resetManifestUrl, enabled = !state.rootfsBusy) {
+                            Text("Default")
+                        }
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 12.dp),

@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val DEFAULT_MANIFEST_URL = "https://mrbean.dev/aibrowser/manifest.json"
+internal const val DEFAULT_MANIFEST_URL = "https://mrbean.dev/aibrowser/manifest.json"
 
 data class SetupUiState(
     val busy: Boolean = false,
@@ -95,6 +95,15 @@ class SetupViewModel(graph: AppGraph, application: Application) : AndroidViewMod
                     },
                 )
             }
+        }
+    }
+
+    /** Back to the built-in manifest URL; also forgets the remembered mirror. */
+    fun resetManifestUrl() {
+        _state.update { it.copy(manifestUrl = DEFAULT_MANIFEST_URL) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val store = ConfigStore(paths.data)
+            store.save(store.load().copy(mirrorUrl = ""))
         }
     }
 
