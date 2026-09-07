@@ -42,12 +42,13 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val savedCount by viewModel.savedCount.collectAsState()
+    val savedMessage by viewModel.savedMessage.collectAsState()
     val pendingToken by viewModel.pendingToken.collectAsState()
     val copy = rememberClipboardCopy()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(savedCount) {
-        if (savedCount > 0) snackbarHostState.showSnackbar("Saved")
+        if (savedCount > 0) snackbarHostState.showSnackbar(savedMessage)
     }
 
     var tokenToRemove by remember { mutableStateOf<ApiToken?>(null) }

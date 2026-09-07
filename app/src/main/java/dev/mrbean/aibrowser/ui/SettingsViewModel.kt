@@ -56,9 +56,13 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
-    /** Incremented after every successful write; the screen shows a "Saved" snackbar. */
+    /** Incremented after every successful write; the screen shows a snackbar. */
     private val _savedCount = MutableStateFlow(0)
     val savedCount: StateFlow<Int> = _savedCount.asStateFlow()
+
+    /** The text of the snackbar shown after the last successful write. */
+    private val _savedMessage = MutableStateFlow("Saved")
+    val savedMessage: StateFlow<String> = _savedMessage.asStateFlow()
 
     /** The just-added API token, shown once in a dialog. */
     private val _pendingToken = MutableStateFlow<ApiToken?>(null)
@@ -112,12 +116,11 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
             withContext(Dispatchers.IO) { tunnelFile.write(_state.value.tunnelToken) }
             val tunnelState = supervisor.statuses.value["tunnel"]?.state
             when (tunnelState) {
-                is ServiceState.Running ->
-                    ServiceController.start(getApplication(), ServiceController.ACTION_RESTART, "tunnel")
                 is ServiceState.Disabled ->
                     ServiceController.start(getApplication(), ServiceController.ACTION_START, "tunnel")
-                else -> Unit
+                else -> restartService(getApplication(), supervisor, "tunnel")
             }
+            _savedMessage.value = "Saved"
             _savedCount.update { it + 1 }
         }
     }
@@ -126,6 +129,7 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
         viewModelScope.launch {
             withContext(Dispatchers.IO) { tunnelFile.write("") }
             _state.update { it.copy(tunnelToken = "") }
+            _savedMessage.value = "Saved"
             _savedCount.update { it + 1 }
         }
     }
@@ -156,6 +160,7 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
                 tokenStore.list()
             }
             _state.update { it.copy(tokens = tokens) }
+            _savedMessage.value = "Saved"
             _savedCount.update { it + 1 }
         }
     }
@@ -190,9 +195,9 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
                     ),
                 )
             }
-            if (supervisor.statuses.value["mcp"]?.state is ServiceState.Running) {
-                ServiceController.start(getApplication(), ServiceController.ACTION_RESTART, "mcp")
-            }
+            restartService(getApplication(), supervisor, "mcp")
+            restartService(getApplication(), supervisor, "tunnel")
+            _savedMessage.value = "Saved; restarting the MCP server"
             _savedCount.update { it + 1 }
         }
     }
@@ -206,6 +211,7 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
     fun saveChromiumFlags() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { writeAtomic(chromiumFlagsFile, _state.value.chromiumFlags.trim()) }
+            _savedMessage.value = "Saved"
             _savedCount.update { it + 1 }
         }
     }

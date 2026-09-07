@@ -131,6 +131,7 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
     private val selfTest = SelfTest(paths, graph.runner)
     private val installer = graph.installer
     private val config = graph.config
+    private val supervisor = graph.supervisor
     private val tokenStore = TokenStore(paths.data)
     private val tunnelFile = SecretFile(File(paths.data, "tunnel.token"))
     private val mcpHostFile = SecretFile(File(paths.data, "mcp.host"))
@@ -301,6 +302,8 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
     fun saveHostnames() {
         viewModelScope.launch {
             persistHostnames()
+            restartService(getApplication(), supervisor, "mcp")
+            restartService(getApplication(), supervisor, "tunnel")
         }
     }
 
