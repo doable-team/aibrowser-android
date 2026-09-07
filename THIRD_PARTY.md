@@ -38,6 +38,20 @@ TigerVNC, Openbox, noVNC, websockify, Python, Node.js; cloudflared
 (Apache-2.0) from npm. The rootfs is downloaded by the app; nothing from it
 is inside the APK.
 
+## Written offer of source (GPL binaries)
+
+The released APK carries the GPL and LGPL programs listed above as separate
+executables. Their source is the termux-packages tree, which builds them:
+https://github.com/termux/termux-packages — proot under `packages/proot`,
+busybox under `packages/busybox`, GNU tar under `packages/tar`, and the
+libraries under their own package directories.
+
+If you would rather have the corresponding source directly, open an issue on
+this repository and it will be provided for any released binary, on a physical
+medium or by download, for as long as that release is distributed and for at
+least three years after, at no more than the cost of distribution. This offer
+is valid for anyone who has a copy of the APK.
+
 ## Prior art
 
 Mechanism and packaging technique from Cateners/tiny_computer (GPL-3.0) and
