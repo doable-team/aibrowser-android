@@ -61,11 +61,7 @@ fun PreviewScreen(
                 .padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "Preview",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
+            Spacer(Modifier.weight(1f))
             Text("View only", style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.width(4.dp))
             Switch(

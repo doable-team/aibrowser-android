@@ -17,6 +17,9 @@ class ConfigStoreTest {
         val config = AppConfig(
             startOnBoot = true,
             mcpHost = "mcp.mrbean.dev",
+            statusHost = "status.mrbean.dev",
+            viewerHost = "viewer.mrbean.dev",
+            setupComplete = true,
             mirrorUrl = "https://mirror.example/rootfs.tar.xz",
             viewOnly = false,
             rootfsVersion = "0.1.0",

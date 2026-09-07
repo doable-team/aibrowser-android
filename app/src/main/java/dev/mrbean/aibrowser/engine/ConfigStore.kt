@@ -10,6 +10,9 @@ import java.io.File
 data class AppConfig(
     val startOnBoot: Boolean = false,
     val mcpHost: String = "",
+    val statusHost: String = "",
+    val viewerHost: String = "",
+    val setupComplete: Boolean = false,
     val mirrorUrl: String = "",
     val viewOnly: Boolean = true,
     val rootfsVersion: String = "",

@@ -1,8 +1,5 @@
 package dev.mrbean.aibrowser.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,14 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -39,23 +30,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mrbean.aibrowser.engine.ApiToken
 
 @Composable
 fun SettingsScreen(
-    onGoToSetup: () -> Unit,
+    onGoToRepair: () -> Unit,
     viewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory),
 ) {
     val state by viewModel.state.collectAsState()
     val savedCount by viewModel.savedCount.collectAsState()
     val pendingToken by viewModel.pendingToken.collectAsState()
-    val context = LocalContext.current
+    val copy = rememberClipboardCopy()
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(savedCount) {
@@ -65,11 +53,6 @@ fun SettingsScreen(
     var tokenToRemove by remember { mutableStateOf<ApiToken?>(null) }
     var confirmUninstall by remember { mutableStateOf(false) }
 
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val copy: (String) -> Unit = { text ->
-        clipboard.setPrimaryClip(ClipData.newPlainText("aibrowser", text))
-    }
-
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -77,6 +60,8 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
+            RepairCard(onGoToRepair)
+            Spacer(Modifier.height(12.dp))
             TunnelCard(state, viewModel)
             Spacer(Modifier.height(12.dp))
             StartupCard(state, viewModel)
@@ -87,7 +72,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(12.dp))
             ChromiumCard(state, viewModel)
             Spacer(Modifier.height(12.dp))
-            RootfsCard(state, onGoToSetup, onUninstall = { confirmUninstall = true })
+            SettingsRootfsCard(state, onGoToRepair, onUninstall = { confirmUninstall = true })
             Spacer(Modifier.height(12.dp))
             AboutCard(state, viewModel)
         }
@@ -166,33 +151,40 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun RepairCard(onGoToRepair: () -> Unit) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Repair and reinstall", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Rerun the setup tools: native binaries, rootfs and Android checks.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Button(onClick = onGoToRepair) { Text("Open") }
+        }
+    }
+}
+
+@Composable
 private fun TunnelCard(state: SettingsUiState, viewModel: SettingsViewModel) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Tunnel", style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
+            TunnelTokenField(
                 value = state.tunnelToken,
+                show = state.showTunnelToken,
                 onValueChange = viewModel::onTunnelTokenChange,
-                label = { Text("Tunnel token") },
-                singleLine = true,
-                visualTransformation = if (state.showTunnelToken) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
+                onToggleShow = viewModel::toggleShowTunnelToken,
+                onSave = viewModel::saveTunnel,
+                onClear = viewModel::clearTunnel,
+                modifier = Modifier.padding(top = 12.dp),
             )
-            Row(Modifier.padding(top = 12.dp)) {
-                TextButton(onClick = viewModel::toggleShowTunnelToken) {
-                    Text(if (state.showTunnelToken) "Hide" else "Show")
-                }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = viewModel::saveTunnel) { Text("Save") }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = viewModel::clearTunnel) { Text("Clear") }
-            }
             Text(
                 "From Zero Trust, Networks, Tunnels: the token of your tunnel.",
                 style = MaterialTheme.typography.bodySmall,
@@ -204,7 +196,7 @@ private fun TunnelCard(state: SettingsUiState, viewModel: SettingsViewModel) {
 
 @Composable
 private fun StartupCard(state: SettingsUiState, viewModel: SettingsViewModel) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Startup", style = MaterialTheme.typography.titleMedium)
             Row(
@@ -238,7 +230,7 @@ private fun ApiTokensCard(
     viewModel: SettingsViewModel,
     onRemove: (ApiToken) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("API tokens", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -246,48 +238,14 @@ private fun ApiTokensCard(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            if (state.tokens.isEmpty()) {
-                Text(
-                    "No tokens yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            state.tokens.forEach { token ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(token.label, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            token.token.take(8),
-                            fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    IconButton(onClick = { onRemove(token) }) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Remove ${token.label}")
-                    }
-                }
-            }
-            HorizontalDivider(Modifier.padding(top = 12.dp))
-            Row(
-                Modifier.padding(top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = state.addLabel,
-                    onValueChange = viewModel::onAddLabelChange,
-                    label = { Text("Label") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = viewModel::addToken) { Text("Add") }
-            }
+            ApiTokenList(
+                tokens = state.tokens,
+                addLabel = state.addLabel,
+                onAddLabelChange = viewModel::onAddLabelChange,
+                onAdd = viewModel::addToken,
+                onRemove = onRemove,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
@@ -298,7 +256,7 @@ private fun HostnamesCard(
     viewModel: SettingsViewModel,
     copy: (String) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Hostnames", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
@@ -310,17 +268,35 @@ private fun HostnamesCard(
                     .fillMaxWidth()
                     .padding(top = 12.dp),
             )
+            OutlinedTextField(
+                value = state.statusHost,
+                onValueChange = viewModel::onStatusHostChange,
+                label = { Text("Status hostname") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
+            OutlinedTextField(
+                value = state.viewerHost,
+                onValueChange = viewModel::onViewerHostChange,
+                label = { Text("Viewer hostname") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+            )
             Row(Modifier.padding(top = 12.dp)) {
-                Button(onClick = viewModel::saveMcpHost) { Text("Save") }
+                Button(onClick = viewModel::saveHostnames) { Text("Save") }
             }
             Text(
                 "Create these three public hostnames in the Cloudflare dashboard:",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 12.dp),
             )
-            GuideRow("<MCP hostname>", "http://localhost:8931", copy)
-            GuideRow("<status hostname>", "http://localhost:8932", copy)
-            GuideRow("<viewer hostname>", "http://localhost:6080", copy)
+            GuideRow(state.mcpHost, "http://localhost:8931", copy)
+            GuideRow(state.statusHost, "http://localhost:8932", copy)
+            GuideRow(state.viewerHost, "http://localhost:6080", copy)
             Text(
                 "The MCP and status hostnames need ?token=<token> on every request. " +
                     "Put the viewer behind a Cloudflare Access login.",
@@ -332,25 +308,8 @@ private fun HostnamesCard(
 }
 
 @Composable
-private fun GuideRow(name: String, target: String, copy: (String) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            "$name -> $target",
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(onClick = { copy(target) }) { Text("Copy") }
-    }
-}
-
-@Composable
 private fun ChromiumCard(state: SettingsUiState, viewModel: SettingsViewModel) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Chromium", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
@@ -386,12 +345,12 @@ private fun ChromiumCard(state: SettingsUiState, viewModel: SettingsViewModel) {
 }
 
 @Composable
-private fun RootfsCard(
+private fun SettingsRootfsCard(
     state: SettingsUiState,
-    onGoToSetup: () -> Unit,
+    onGoToRepair: () -> Unit,
     onUninstall: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Rootfs", style = MaterialTheme.typography.titleMedium)
             Text(
@@ -404,7 +363,7 @@ private fun RootfsCard(
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(Modifier.padding(top = 12.dp)) {
-                Button(onClick = onGoToSetup) { Text("Reinstall") }
+                Button(onClick = onGoToRepair) { Text("Reinstall") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = onUninstall) { Text("Uninstall") }
             }
@@ -414,7 +373,7 @@ private fun RootfsCard(
 
 @Composable
 private fun AboutCard(state: SettingsUiState, viewModel: SettingsViewModel) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("About", style = MaterialTheme.typography.titleMedium)
             Text(

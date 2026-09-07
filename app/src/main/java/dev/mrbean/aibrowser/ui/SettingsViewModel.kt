@@ -31,6 +31,8 @@ data class SettingsUiState(
     val tokens: List<ApiToken> = emptyList(),
     val addLabel: String = "",
     val mcpHost: String = "",
+    val statusHost: String = "",
+    val viewerHost: String = "",
     val chromiumFlags: String = "",
     val extensions: List<String> = emptyList(),
     val startOnBoot: Boolean = false,
@@ -71,6 +73,8 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
                     tunnelToken = tunnelFile.readOrEmpty(),
                     tokens = tokenStore.list(),
                     mcpHost = cfg.mcpHost,
+                    statusHost = cfg.statusHost,
+                    viewerHost = cfg.viewerHost,
                     chromiumFlags = chromiumFlagsFile.readText().trim(),
                     extensions = listExtensions(),
                     startOnBoot = cfg.startOnBoot,
@@ -166,11 +170,25 @@ class SettingsViewModel(graph: AppGraph, application: Application) : AndroidView
         _state.update { it.copy(mcpHost = value) }
     }
 
-    fun saveMcpHost() {
+    fun onStatusHostChange(value: String) {
+        _state.update { it.copy(statusHost = value) }
+    }
+
+    fun onViewerHostChange(value: String) {
+        _state.update { it.copy(viewerHost = value) }
+    }
+
+    fun saveHostnames() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 mcpHostFile.write(_state.value.mcpHost)
-                config.save(config.load().copy(mcpHost = _state.value.mcpHost))
+                config.save(
+                    config.load().copy(
+                        mcpHost = _state.value.mcpHost,
+                        statusHost = _state.value.statusHost,
+                        viewerHost = _state.value.viewerHost,
+                    ),
+                )
             }
             if (supervisor.statuses.value["mcp"]?.state is ServiceState.Running) {
                 ServiceController.start(getApplication(), ServiceController.ACTION_RESTART, "mcp")
