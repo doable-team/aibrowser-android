@@ -10,7 +10,9 @@ Cloudflare tunnel. The app supervises those processes and gives you a control
 panel: first-run setup, service switches and status, a live preview, tunnel
 token and API tokens.
 
-Status: in development. See `docs/SPEC.md` for the design and milestones.
+Status: in development, used daily on one phone. Requires arm64 Android 9
+(API 28) or newer, about 1.5 GB free for the userland, and a Cloudflare
+account for the tunnel.
 
 ## Why a phone
 
