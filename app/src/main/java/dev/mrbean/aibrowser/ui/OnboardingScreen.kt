@@ -11,13 +11,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -28,10 +35,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -45,8 +56,10 @@ import dev.mrbean.aibrowser.engine.ApiToken
 import dev.mrbean.aibrowser.engine.ConfigStore
 import dev.mrbean.aibrowser.engine.InstallState
 import dev.mrbean.aibrowser.engine.NativeBinaries
+import dev.mrbean.aibrowser.engine.PrepareReport
 import dev.mrbean.aibrowser.engine.SecretFile
 import dev.mrbean.aibrowser.engine.SelfTest
+import dev.mrbean.aibrowser.engine.SelfTestReport
 import dev.mrbean.aibrowser.engine.TokenStore
 import dev.mrbean.aibrowser.service.ServiceController
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +89,8 @@ private fun isOptionalHostnameValid(host: String): Boolean =
 data class OnboardingUiState(
     val prepareBusy: Boolean = false,
     val prepareOk: Boolean = false,
-    val prepareReport: String = "",
+    val prepareReport: PrepareReport? = null,
+    val selfTestReport: SelfTestReport? = null,
     val manifestUrl: String = DEFAULT_MANIFEST_URL,
     val installState: InstallState = InstallState.Idle,
     val rootfsBusy: Boolean = false,
@@ -154,30 +168,30 @@ class OnboardingViewModel(graph: AppGraph, application: Application) : AndroidVi
 
     fun prepareAndSelfTest() {
         if (_state.value.prepareBusy || _state.value.prepareOk) return
+        recheck()
+    }
+
+    /** Re-runs Prepare and the self-test (Run again / Retry), always, even after a pass. */
+    fun recheck() {
+        if (_state.value.prepareBusy) return
         viewModelScope.launch {
-            _state.update { it.copy(prepareBusy = true, prepareReport = "Preparing native binaries...") }
+            _state.update {
+                it.copy(
+                    prepareBusy = true,
+                    prepareOk = false,
+                    prepareReport = null,
+                    selfTestReport = null,
+                )
+            }
             val prepare = withContext(Dispatchers.IO) { NativeBinaries.prepare(paths) }
             val report = withContext(Dispatchers.IO) { selfTest.run() }
+            val passed = report.proot.exitCode == 0 && report.busybox.exitCode == 0
             _state.update {
                 it.copy(
                     prepareBusy = false,
-                    prepareOk = report.proot.exitCode == 0,
-                    prepareReport = buildString {
-                        appendLine("Prepared ${prepare.linksCreated.size} symlinks.")
-                        if (prepare.missingNativeFiles.isNotEmpty()) {
-                            appendLine("MISSING native files: ${prepare.missingNativeFiles.joinToString()}")
-                        }
-                        if (prepare.errors.isNotEmpty()) {
-                            appendLine("ERRORS:")
-                            prepare.errors.forEach { appendLine("  $it") }
-                        }
-                        appendLine("proot --version (exit ${report.proot.exitCode}):")
-                        append(report.proot.stdout)
-                        append(report.proot.stderr)
-                        appendLine("busybox echo ok (exit ${report.busybox.exitCode}):")
-                        append(report.busybox.stdout)
-                        append(report.busybox.stderr)
-                    },
+                    prepareOk = passed,
+                    prepareReport = prepare,
+                    selfTestReport = report,
                 )
             }
         }
@@ -444,17 +458,135 @@ private fun StepScaffold(
 @Composable
 private fun WelcomeStep(state: OnboardingUiState, viewModel: OnboardingViewModel) {
     StepScaffold(
-        title = "Welcome",
+        title = "Checking the bundled tools",
         paragraph = "AiBrowser turns this phone into a headed Chromium that AI agents drive over " +
-            "MCP from anywhere. A Debian userland runs inside the app under proot, no root needed. " +
-            "This setup installs it, checks the phone's settings and configures the services.",
+            "MCP from anywhere. A Debian userland runs inside the app under proot, and this step " +
+            "checks that the bundled tools it needs actually run.",
     ) {
-        NativeBinariesCard(
-            busy = state.prepareBusy,
+        ToolsCheckCard(
             report = state.prepareReport,
-            onPrepare = viewModel::prepareAndSelfTest,
-            onRunSelfTest = viewModel::prepareAndSelfTest,
+            selfTest = state.selfTestReport,
+            onRunAgain = viewModel::recheck,
         )
+    }
+}
+
+/** Step 1's result card: Running, Passed or Failed for the bundled-tools check. */
+@Composable
+private fun ToolsCheckCard(
+    report: PrepareReport?,
+    selfTest: SelfTestReport?,
+    onRunAgain: () -> Unit,
+) {
+    val summary = summarize(report, selfTest)
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            when (summary.state) {
+                SelfTestState.RUNNING -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 3.dp,
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text("Checking proot and busybox", style = MaterialTheme.typography.bodyMedium)
+                }
+
+                SelfTestState.PASSED -> {
+                    var showDetails by remember { mutableStateOf(false) }
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = "Ready",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(56.dp),
+                        )
+                        Text(
+                            "Ready",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            "${summary.links} symlinks prepared",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                        Text(
+                            summary.prootVersion?.let { "proot $it runs" } ?: "proot runs",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text("busybox runs", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Nothing to do here. Tap Next.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Row(Modifier.padding(top = 4.dp)) {
+                            TextButton(onClick = onRunAgain) { Text("Run again") }
+                            TextButton(onClick = { showDetails = !showDetails }) { Text("Details") }
+                        }
+                        if (showDetails) {
+                            Text(
+                                summary.details,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+
+                SelfTestState.FAILED -> {
+                    Column(
+                        Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Filled.Error,
+                            contentDescription = "Error",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(56.dp),
+                        )
+                        Text(
+                            "Something is wrong with the bundled tools",
+                            style = MaterialTheme.typography.titleMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                        Text(
+                            failureDetails(selfTest),
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                        )
+                        Button(onClick = onRunAgain, modifier = Modifier.padding(top = 12.dp)) {
+                            Text("Retry")
+                        }
+                        Text(
+                            "If this keeps failing the APK is broken; reinstall it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The failed card's monospace block: exit codes and stderr lines only. */
+private fun failureDetails(selfTest: SelfTestReport?): String = buildString {
+    selfTest?.let {
+        appendLine("proot exit ${it.proot.exitCode}")
+        if (it.proot.stderr.isNotBlank()) append(it.proot.stderr)
+        appendLine("busybox exit ${it.busybox.exitCode}")
+        if (it.busybox.stderr.isNotBlank()) append(it.busybox.stderr)
     }
 }
 
