@@ -37,7 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.mrbean.aibrowser.engine.ApiToken
@@ -388,17 +394,39 @@ private fun ChromiumCard(state: SettingsUiState, viewModel: SettingsViewModel) {
                 enabled = !state.extensionBusy,
                 modifier = Modifier.padding(top = 8.dp),
             ) { Text("Add extension") }
+            val linkStyles = TextLinkStyles(
+                SpanStyle(
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            )
             Text(
-                "Pick a packed extension (.zip or .crx). To get one from the Chrome " +
-                    "Web Store, paste the extension link into crx4chrome.com/crx-downloader/ " +
-                    "or crx-downloader.com and download the zip. Restart chromium after " +
-                    "adding or removing one.",
+                buildAnnotatedString {
+                    append(
+                        "Pick a packed extension (.zip or .crx). To get one from the Chrome " +
+                            "Web Store, paste the extension link into ",
+                    )
+                    // The system decides what opens these: a browser chooser, or
+                    // the default browser when one is set.
+                    withLink(LinkAnnotation.Url(CRX4CHROME_URL, linkStyles)) {
+                        append("crx4chrome.com/crx-downloader/")
+                    }
+                    append(" or ")
+                    withLink(LinkAnnotation.Url(CRX_DOWNLOADER_URL, linkStyles)) {
+                        append("crx-downloader.com")
+                    }
+                    append(", and download the zip. Restart chromium after adding or removing one.")
+                },
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
     }
 }
+
+/** The tools that turn a Chrome Web Store link into a zip the picker can take. */
+private const val CRX4CHROME_URL = "https://www.crx4chrome.com/crx-downloader/"
+private const val CRX_DOWNLOADER_URL = "https://crx-downloader.com/"
 
 /** The document provider's display name for a picked file, with fallbacks. */
 private fun queryDisplayName(context: Context, uri: Uri): String {
