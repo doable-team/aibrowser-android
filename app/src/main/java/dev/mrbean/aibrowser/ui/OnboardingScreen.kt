@@ -3,14 +3,15 @@ package dev.mrbean.aibrowser.ui
 import android.app.Application
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -344,65 +345,69 @@ fun OnboardingScreen(
         if (finished) onFinished()
     }
 
-    Column(
-        Modifier
+    Surface(
+        modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        Text(
-            "Step ${pagerState.currentPage + 1} of $ONBOARDING_STEP_COUNT",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
-        )
-        LinearProgressIndicator(
-            progress = { (pagerState.currentPage + 1) / ONBOARDING_STEP_COUNT.toFloat() },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = false,
-            modifier = Modifier.weight(1f),
-        ) { page ->
-            when (page) {
-                0 -> WelcomeStep(state, viewModel)
-                1 -> RootfsStep(state, viewModel)
-                2 -> AndroidChecksStep()
-                3 -> TunnelStep(state, viewModel)
-                4 -> ApiTokenStep(state, viewModel, copy)
-                5 -> HostnamesStep(state, viewModel, copy)
+        Column(Modifier.fillMaxSize()) {
+            Text(
+                "Step ${pagerState.currentPage + 1} of $ONBOARDING_STEP_COUNT",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+            )
+            LinearProgressIndicator(
+                progress = { (pagerState.currentPage + 1) / ONBOARDING_STEP_COUNT.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            HorizontalPager(
+                state = pagerState,
+                userScrollEnabled = false,
+                modifier = Modifier.weight(1f),
+            ) { page ->
+                when (page) {
+                    0 -> WelcomeStep(state, viewModel)
+                    1 -> RootfsStep(state, viewModel)
+                    2 -> AndroidChecksStep()
+                    3 -> TunnelStep(state, viewModel)
+                    4 -> ApiTokenStep(state, viewModel, copy)
+                    5 -> HostnamesStep(state, viewModel, copy)
+                }
             }
-        }
-        val lastPage = pagerState.currentPage == ONBOARDING_STEP_COUNT - 1
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(pagerState.currentPage - 1)
-                    }
-                },
-                enabled = pagerState.currentPage > 0,
-            ) { Text("Back") }
-            Spacer(Modifier.weight(1f))
-            if (lastPage) {
-                Button(
-                    onClick = viewModel::finish,
-                    enabled = nextEnabled(pagerState.currentPage, state),
-                ) { Text("Finish") }
-            } else {
-                Button(
+            val lastPage = pagerState.currentPage == ONBOARDING_STEP_COUNT - 1
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
                     onClick = {
                         scope.launch {
-                            pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            pagerState.animateScrollToPage(pagerState.currentPage - 1)
                         }
                     },
-                    enabled = nextEnabled(pagerState.currentPage, state),
-                ) { Text("Next") }
+                    enabled = pagerState.currentPage > 0,
+                ) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                if (lastPage) {
+                    Button(
+                        onClick = viewModel::finish,
+                        enabled = nextEnabled(pagerState.currentPage, state),
+                    ) { Text("Finish") }
+                } else {
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                            }
+                        },
+                        enabled = nextEnabled(pagerState.currentPage, state),
+                    ) { Text("Next") }
+                }
             }
         }
     }
@@ -420,7 +425,11 @@ private fun StepScaffold(
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
         Text(
             paragraph,
             style = MaterialTheme.typography.bodyMedium,
@@ -594,6 +603,7 @@ private fun HostnamesStep(
         Text(
             "Create these three public hostnames in the Cloudflare dashboard:",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
             modifier = Modifier.padding(top = 12.dp),
         )
         GuideRow(state.mcpHost, "http://localhost:8931", copy)
@@ -603,6 +613,7 @@ private fun HostnamesStep(
             "The MCP and status hostnames need ?token=<token> on every request. " +
                 "Put the viewer behind a Cloudflare Access login.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
             modifier = Modifier.padding(top = 8.dp),
         )
     }

@@ -2,23 +2,19 @@ package dev.mrbean.aibrowser.ui
 
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,7 +22,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,8 +29,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dev.mrbean.aibrowser.AiBrowserApp
 import dev.mrbean.aibrowser.MainActivity
-import dev.mrbean.aibrowser.engine.Services
-import dev.mrbean.aibrowser.engine.ServiceState
 
 private enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     Home("home", "Home", Icons.Filled.Home),
@@ -88,21 +81,17 @@ private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
     }
     val isTab = currentRoute in Destination.entries.map { it.route }
 
-    val graph = remember { AiBrowserApp.graphOf(context) }
-    val statuses by graph.supervisor.statuses.collectAsState()
-    val running = statuses.values.count { it.state is ServiceState.Running }
-
     Scaffold(
         topBar = {
             if (isTab && !previewFullscreen) {
                 TopAppBar(
                     title = {
-                        Text(Destination.entries.firstOrNull { it.route == currentRoute }?.label ?: "")
-                    },
-                    actions = {
-                        if (currentRoute == Destination.Home.route) {
-                            HealthChip(running)
+                        val label = if (currentRoute == Destination.Home.route) {
+                            "AiBrowser"
+                        } else {
+                            Destination.entries.firstOrNull { it.route == currentRoute }?.label ?: ""
                         }
+                        Text(label)
                     },
                 )
             }
@@ -136,7 +125,10 @@ private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(Destination.Home.route) {
-                DashboardScreen(
+                HomeScreen(
+                    onOpenPreview = {
+                        navController.navigate(Destination.Preview.route) { launchSingleTop = true }
+                    },
                     onGoToRepair = {
                         navController.navigate(REPAIR_ROUTE) { launchSingleTop = true }
                     },
@@ -166,19 +158,3 @@ private fun MainShell(onSetupCompleteChanged: (Boolean) -> Unit) {
 }
 
 private const val REPAIR_ROUTE = "repair"
-
-@Composable
-private fun HealthChip(running: Int) {
-    val allRunning = running == Services.all.size
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = if (allRunning) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.tertiary,
-        contentColor = if (allRunning) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onTertiary,
-    ) {
-        Text(
-            "$running of ${Services.all.size} running",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-        )
-    }
-}

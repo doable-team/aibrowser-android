@@ -1,10 +1,6 @@
 package dev.mrbean.aibrowser.ui
 
-import android.net.Uri
-import android.webkit.WebResourceRequest
-import android.view.ViewGroup
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import dev.mrbean.aibrowser.AiBrowserApp
 import dev.mrbean.aibrowser.engine.ServiceState
 import dev.mrbean.aibrowser.service.ServiceController
@@ -51,8 +46,6 @@ fun PreviewScreen(
 
     var viewOnly by remember { mutableStateOf(graph.config.load().viewOnly) }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    val url = "http://127.0.0.1:6080/vnc.html" +
-        "?autoconnect=true&resize=scale&view_only=${if (viewOnly) "1" else "0"}"
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -92,35 +85,10 @@ fun PreviewScreen(
                 }
             }
         } else {
-            AndroidView(
+            NoVncView(
                 modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        // Without explicit params a WebView measures as wrap-content
-                        // and reports a zero CSS viewport height, so noVNC's
-                        // container collapses and the canvas draws at 0 by 0.
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?,
-                            ): Boolean = request?.url?.host != "127.0.0.1"
-
-                            @Deprecated("Deprecated in Java")
-                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean =
-                                Uri.parse(url).host != "127.0.0.1"
-                        }
-                        webView = this
-                    }
-                },
-                update = { wv ->
-                    if (wv.url != url) wv.loadUrl(url)
-                },
+                viewOnly = viewOnly,
+                onReady = { webView = it },
             )
         }
     }

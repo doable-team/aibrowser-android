@@ -58,24 +58,29 @@ fun DashboardScreen(
     onGoToRepair: () -> Unit,
     viewModel: DashboardViewModel = viewModel(factory = DashboardViewModel.Factory),
 ) {
+    DashboardContent(
+        onGoToRepair = onGoToRepair,
+        viewModel = viewModel,
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+    )
+}
+
+/**
+ * The service overview: Start all / Stop all / Restart all, then one card per
+ * service. Non-scrolling; the caller supplies the scroll and padding. Reused by
+ * [HomeScreen] below its preview strip.
+ */
+@Composable
+fun DashboardContent(
+    onGoToRepair: () -> Unit,
+    viewModel: DashboardViewModel,
+    modifier: Modifier = Modifier,
+) {
     val statuses by viewModel.statuses.collectAsState()
     val rootfsInstalled by viewModel.rootfsInstalled.collectAsState()
-
-    if (!rootfsInstalled) {
-        AppCard(modifier = Modifier.padding(16.dp)) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Install the rootfs first", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "The services run inside the Debian userland. Set it up before starting them.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Spacer(Modifier.height(12.dp))
-                Button(onClick = onGoToRepair) { Text("Go to Repair") }
-            }
-        }
-        return
-    }
 
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -133,42 +138,47 @@ fun DashboardScreen(
         context.startActivity(Intent.createChooser(sendIntent, "Share log"))
     }
 
-    val running = statuses.values.count { it.state is ServiceState.Running }
-    Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-        ) {
-            Text(
-                "$running of ${Services.all.size} running",
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Row(Modifier.padding(top = 12.dp)) {
-                Button(onClick = startAll) { Text("Start all") }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = viewModel::stopAll) { Text("Stop all") }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = restartAll) { Text("Restart all") }
+    Box(modifier) {
+        if (!rootfsInstalled) {
+            AppCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Install the rootfs first", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "The services run inside the Debian userland. Set it up before starting them.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = onGoToRepair) { Text("Go to Repair") }
+                }
             }
-            Spacer(Modifier.height(16.dp))
-            Services.all.forEach { def ->
-                ServiceCard(
-                    def = def,
-                    status = statuses[def.name],
-                    nowMs = nowMs,
-                    onToggle = { on ->
-                        if (on) withPermission { viewModel.start(def.name) }
-                        else viewModel.stop(def.name)
-                    },
-                    onRestart = { withPermission { viewModel.restart(def.name) } },
-                    loadLogs = { viewModel.logLines(def.name) },
-                    onCopyLog = onCopyLog,
-                    onShareLog = onShareLog,
-                    onClearLog = { viewModel.clearLog(def.name) },
-                )
-                Spacer(Modifier.height(8.dp))
+        } else {
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth()) {
+                    Button(onClick = startAll) { Text("Start all") }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = viewModel::stopAll) { Text("Stop all") }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = restartAll) { Text("Restart all") }
+                }
+                Spacer(Modifier.height(16.dp))
+                Services.all.forEach { def ->
+                    ServiceCard(
+                        def = def,
+                        status = statuses[def.name],
+                        nowMs = nowMs,
+                        onToggle = { on ->
+                            if (on) withPermission { viewModel.start(def.name) }
+                            else viewModel.stop(def.name)
+                        },
+                        onRestart = { withPermission { viewModel.restart(def.name) } },
+                        loadLogs = { viewModel.logLines(def.name) },
+                        onCopyLog = onCopyLog,
+                        onShareLog = onShareLog,
+                        onClearLog = { viewModel.clearLog(def.name) },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
             }
         }
         SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
