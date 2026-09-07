@@ -102,6 +102,10 @@ class ServiceSupervisor(
         // every start; make sure the suppress flags are present before the
         // services can run.
         ChromiumFlags.ensure(paths.data)
+        // An already-installed rootfs without an noVNC index.html shows a
+        // directory listing at the bare viewer hostname; backfill it so the
+        // viewer service keeps redirecting to the desktop.
+        NoVncIndex.ensure(paths.rootfs)
     }
 
     /** Starts one service; `tunnel` without a token becomes [ServiceState.Disabled]. */

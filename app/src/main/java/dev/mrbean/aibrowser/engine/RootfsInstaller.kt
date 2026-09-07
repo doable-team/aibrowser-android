@@ -120,6 +120,7 @@ class RootfsInstaller(
             File(paths.rootfs, "etc").mkdirs()
             File(paths.rootfs, "etc/resolv.conf").writeText(RESOLV_CONF)
             File(paths.rootfs, "etc/hosts").writeText(HOSTS)
+            NoVncIndex.ensure(paths.rootfs)
             val home = File(paths.rootfs, "root")
             File(home, "profile").mkdirs()
             File(home, "logs").mkdirs()

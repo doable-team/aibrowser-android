@@ -23,6 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     && rm -rf /var/lib/apt/lists/*
 
+# noVNC is served from /usr/share/novnc; index.html redirects the bare viewer
+# hostname to the desktop (keeping any query string the visitor typed).
+RUN printf '%s\n' \
+    '<!doctype html>' \
+    '<meta charset="utf-8">' \
+    '<title>AiBrowser viewer</title>' \
+    '<script>location.replace("vnc.html?autoconnect=true&resize=scale" + (location.search ? "&" + location.search.slice(1) : ""));</script>' \
+    '<noscript><a href="vnc.html?autoconnect=true&amp;resize=scale">Open the viewer</a></noscript>' \
+    > /usr/share/novnc/index.html
+
 # C.UTF-8 as the default locale.
 RUN sed -i 's/^# *C\.UTF-8 UTF-8/C.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
 
