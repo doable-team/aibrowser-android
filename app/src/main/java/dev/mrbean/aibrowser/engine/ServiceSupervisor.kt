@@ -221,6 +221,11 @@ class ServiceSupervisor(
             yield()
             val startedAt = clock()
             setState(name, ServiceState.Running(startedAt))
+            if (name == "xvnc") {
+                runCatching { XDisplayLock.recover(paths.rootfs) }
+                    .onSuccess { if (it) appendLog(name, "Removed stale X display :1 lock") }
+                    .onFailure { appendLog(name, "Cannot recover X display lock: ${it.message}") }
+            }
             val spec = ProotCommand.build(
                 paths = paths,
                 rootfsDir = paths.rootfs,

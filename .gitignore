@@ -1,6 +1,10 @@
+# Workspace-local build tools
+/.local/
+
 # Android / Gradle
 *.iml
 .gradle/
+.kotlin/
 .idea/
 build/
 /local.properties
